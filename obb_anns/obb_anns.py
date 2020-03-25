@@ -15,6 +15,7 @@ import os.path as osp
 from PIL import Image, ImageColor, ImageDraw, ImageFont
 import colorcet as cc
 
+
 class OBBAnns:
     def __init__(self,
                  ann_file):
@@ -25,15 +26,15 @@ class OBBAnns:
         to calculate the various metrics.
 
         Provides the following methods:
-        - load_annotations()
-        - load_proposals()
-        - get_imgs()
-        - get_anns()
-        - get_cats()
-        - get_ann_ids()
-        - get_img_ann_pairs()
-        - calculate_metrics()
-        - visualize_anns()
+        - load_annotations(): Loads annotations to memory.
+        - load_proposals(): Loads given proposals to memory.
+        - get_imgs(): Gets desired image information.
+        - get_anns(): Gets annotation information for a given image.
+        - get_cats(): Gets all cats in the dataset.
+        - get_ann_ids(): Gets annotation information by annotation ID.
+        - get_img_ann_pairs(): Gets image-annotation pairs by image.
+        - calculate_metrics(): Calculate validation metrics from proposals.
+        - visualize_anns(): Visualizes annotations for an image using Pillow.
 
         :param ann_file: Path to the annotation file.
         :type ann_file: str
@@ -50,7 +51,7 @@ class OBBAnns:
         self.ann_info = None
 
     def __repr__(self):
-        information = "<Oriented Bounding Box Dataset.\n"
+        information = "<Oriented Bounding Box Dataset>\n"
         information += f"Ann file: {self.ann_file}\n"
         if self.dataset_info is not None:
             information += f"Num images: {len(self.img_info)}\n"
@@ -69,9 +70,9 @@ class OBBAnns:
         return 0 if self.img_info is None else len(self.img_info)
 
     @staticmethod
-    def _xor_args(a, b):
-        only_one_arg = ((a is not None and b is None)
-                        or (a is None and b is not None))
+    def _xor_args(m, n):
+        only_one_arg = ((m is not None and n is None)
+                        or (m is None and n is not None))
         assert only_one_arg, 'Only one type of request can be done at a time'
 
     def load_annotations(self):
@@ -90,14 +91,14 @@ class OBBAnns:
         self.dataset_info = data['info']
 
         self.cat_info = {int(k): v for k, v in data['categories'].items()}
-        self.ann_info = {int(k): v for k, v in data['ann_info'].items()}
+        self.ann_info = {int(k): v for k, v in data['annotations'].items()}
 
         self.img_info = data['images']
 
         for i, img in enumerate(data['images']):
             # lookup table used to figure out the index in self.img_info of
             # every image based on their img_id
-            self.img_idx_lookup[int(img['img_id'])] = i
+            self.img_idx_lookup[int(img['id'])] = i
 
         self.img_info = data['images']
 
@@ -190,7 +191,7 @@ class OBBAnns:
         """
         assert isinstance(ann_ids, list), 'Given ann_ids must be a list or ' \
                                           'tuple'
-        return {self.ann_info[int(ann_id)] for ann_id in ann_ids}
+        return {ann_id: self.ann_info[ann_id] for ann_id in ann_ids}
 
     def get_img_ann_pair(self, idxs=None, ids=None):
         """Gets the information and annotations at the given indices/ids.
@@ -288,17 +289,19 @@ class OBBAnns:
         # areas in the segmentation (i.e. background) are ignored
         seg_array = np.array(seg)
         mask = np.zeros_like(seg_array)
-        mask[np.where(seg_array == 0)] = 1
-        Image.fromarray(mask, mode='1')
+        mask[np.where(seg_array == 0)] = 255
+        mask = Image.fromarray(mask, mode='L')
 
         composed = Image.composite(img, seg.convert('RGB'), mask)
         draw = ImageDraw.Draw(composed)
 
         # Now draw the bounding boxes onto the image
         for ann in ann_info.values():
-            cat = self.cat_info[ann['cat_id']]
+            cat = self.cat_info[int(ann['cat_id'])]
             bbox = ann['bbox']
-            draw.polygon(bbox, outline=cc.glasbey[ann['cat_id']])
+            # We use a mod to make sure we get a color within the possible
+            # color range
+            draw.polygon(bbox, outline=cc.glasbey[int(ann['cat_id']) % 256])
 
             # Now draw the label below the bbox
             x0 = min(bbox[::2])
@@ -311,3 +314,9 @@ class OBBAnns:
             draw.text((x0 + 2, y0 + 2), cat, '#ffffff')
 
         composed.show()
+
+if __name__ == '__main__':
+    a = OBBAnns('E:\Offline Docs\OBB\music\deepscores_oriented_val.json')
+    a.load_annotations()
+    a.visualize(img_idx=0, img_dir='images_png', seg_dir='pix_annotations_png')
+    input()
