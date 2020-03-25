@@ -49,7 +49,7 @@ Finally, we choose to process predictions from a proposals file instead of from 
 
 ### Notes
 - The annotation file is in JSON format.
-- The 'annotations' field is optional for testing.
+- The 'annotations' field is in absolute x, y positions.
 - cat_id, and ann_id are stringified ints.
 - cat_id, ann_id, and img_id starts at 1.
 

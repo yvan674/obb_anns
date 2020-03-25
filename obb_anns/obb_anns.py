@@ -12,16 +12,12 @@ import json
 from time import time
 import numpy as np
 import os.path as osp
-from PIL import Image
-from matplotlib.path import Path
-
+from PIL import Image, ImageColor, ImageDraw, ImageFont
+import colorcet as cc
 
 class OBBAnns:
     def __init__(self,
-                 ann_file,
-                 data_root=None,
-                 img_prefix=None,
-                 seg_prefix=None):
+                 ann_file):
         """Toolkit to work with Oriented Bounding Boxes.
 
         Workflow is generally to initialize the class, load ann_info, run the
@@ -40,23 +36,10 @@ class OBBAnns:
         - visualize_anns()
 
         :param ann_file: Path to the annotation file.
-        :param data_root: Path to the root data directory. If none is given, it
-            is assumed to be the parent directory of the ann_file path.
-        :param img_prefix: Prefix for the image files. For example, if the
-            image files are in a subdirectory '[data_root]/imgs/[file_name]',
-            then the img_prefix is 'imgs/'
-        :param seg_prefix: Prefix for the segmentation files. See img_prefix
-            for an example.
         :type ann_file: str
-        :type data_root: str
-        :type img_prefix: str
-        :type seg_prefix: str
         """
         # Store class attributes
         self.ann_file = ann_file
-        self.data_root = data_root if data_root else ''
-        self.img_prefix = img_prefix if img_prefix else ''
-        self.seg_prefix = seg_prefix if seg_prefix else ''
 
         self.proposal_file = None
         self.proposals = None
@@ -68,7 +51,6 @@ class OBBAnns:
 
     def __repr__(self):
         information = "<Oriented Bounding Box Dataset.\n"
-        information += f"Data root: {self.data_root}\n"
         information += f"Ann file: {self.ann_file}\n"
         if self.dataset_info is not None:
             information += f"Num images: {len(self.img_info)}\n"
@@ -111,6 +93,7 @@ class OBBAnns:
         self.ann_info = {int(k): v for k, v in data['ann_info'].items()}
 
         self.img_info = data['images']
+
         for i, img in enumerate(data['images']):
             # lookup table used to figure out the index in self.img_info of
             # every image based on their img_id
@@ -154,7 +137,8 @@ class OBBAnns:
         :param ids: The ids of the desired images
         :type idxs: list or tuple
         :type ids: list or tuple
-        :returns: The information of the requested images as a list.
+        :returns: The information of the requested images as a list. Filenames
+            will have had the data root as well as paths added to them.
         :rtype: list
         :raises: AssertionError if both idxs and ids are given.
         """
@@ -163,6 +147,7 @@ class OBBAnns:
         if idxs is not None:
             assert isinstance(idxs, list), 'Given indices idxs must be a ' \
                                            'list or tuple'
+
             return [self.img_info[idx] for idx in idxs]
         else:
             assert isinstance(ids, list), 'Given ids must be a list or tuple'
@@ -217,8 +202,9 @@ class OBBAnns:
         :param ids: The ids of the desired images
         :type idxs: list or tuple
         :type ids: list or tuple
-        :returns: The information of the requested images as a list.
-        :rtype: list
+        :returns: The information of the requested images as a tuple (list of
+            image info, corresponding annotations)
+        :rtype: tuple
         :raises: AssertionError if both idxs and ids are given.
         """
         self._xor_args(idxs, ids)
@@ -236,7 +222,12 @@ class OBBAnns:
         """
         raise NotImplementedError
 
-    def visualize(self, img_idx=None, img_id=None):
+    def visualize(self,
+                  img_idx=None,
+                  img_id=None,
+                  data_root=None,
+                  img_dir=None,
+                  seg_dir=None):
         """Uses PIL to visualize the ground truth labels of a given image.
 
         img_idx and img_id are mutually exclusive. Only one can be used at a
@@ -244,16 +235,79 @@ class OBBAnns:
 
         :param img_idx: The index of the desired image.
         :param img_id: The id of the desired image.
+        :param data_root: Path to the root data directory. If none is given, it
+            is assumed to be the parent directory of the ann_file path.
+        :param img_dir: Directory for the image files. For example, if the
+            image files are in a subdirectory '[data_root]/imgs/[file_name]',
+            then the img_dir is 'imgs'.
+        :param seg_dir: Directory for the segmentation files. See img_dir
+            for an example.
         :type img_idx: int
         :type img_id: int
+        :type data_root: str or None
+        :type img_dir: str or None
+        :type seg_dir: str or None
         """
-        self._xor_args(img_idx, img_id)
+        # Since we can only visualize a single image at a time, we do i[0] so
+        # that we don't have to deal with lists. get_img_ann_pair() returns a
+        # tuple that's why we use list comprehension
+        img_idx = [img_idx] if img_idx is not None else None
+        img_id = [img_id] if img_id is not None else None
+        img_info, ann_info = [i[0] for i in
+                              self.get_img_ann_pair(idxs=img_idx, ids=img_id)]
 
-        if img_id:
-            img_idx = self.img_idx_lookup[img_id]
+        # Get the data_root from the ann_file path if it doesn't exist
+        if data_root is None:
+            data_root = osp.split(self.ann_file)[0]
 
-        img_info = self.img_info[img_idx]
+        # Calculate the directories that the actual image and segmentations
+        # are in
+        img_dir = data_root if img_dir is None else osp.join(data_root, img_dir)
+        seg_dir = data_root if seg_dir is None else osp.join(data_root, seg_dir)
 
-        img = Image.open()
+        # Get the actual image filepath and the segmentation filepath
+        img_fp = osp.join(img_dir, img_info['filename'])
+        seg_fp = osp.join(seg_dir, osp.splitext(img_info['filename'])[0]
+                          + '_seg.png')
 
-        # TODO Deal with data root and img prefixes
+        # Remember: PIL Images are in form (h, w, 3)
+        img = Image.open(img_fp)
+        seg = Image.open(seg_fp)
+
+        # Here we overlay the segmentation on the original image using the
+        # colorcet colors
+        # First we need to get the new color values from colorcet
+        colors = [ImageColor.getrgb(i) for i in cc.glasbey]
+        colors = np.array(colors).reshape(768,).tolist()
+        colors[0:3] = [0, 0, 0]   # Set background to black
+
+        # Then put the palette
+        seg.putpalette(colors)
+
+        # Now the img and the segmentation can be composed together. Black
+        # areas in the segmentation (i.e. background) are ignored
+        seg_array = np.array(seg)
+        mask = np.zeros_like(seg_array)
+        mask[np.where(seg_array == 0)] = 1
+        Image.fromarray(mask, mode='1')
+
+        composed = Image.composite(img, seg.convert('RGB'), mask)
+        draw = ImageDraw.Draw(composed)
+
+        # Now draw the bounding boxes onto the image
+        for ann in ann_info.values():
+            cat = self.cat_info[ann['cat_id']]
+            bbox = ann['bbox']
+            draw.polygon(bbox, outline=cc.glasbey[ann['cat_id']])
+
+            # Now draw the label below the bbox
+            x0 = min(bbox[::2])
+            y0 = max(bbox[1::2])
+
+            x1, y1 = ImageFont.load_default().getsize(cat)
+            x1 += x0 + 4
+            y1 += y0 + 4
+            draw.rectangle((x0, y0, x1, y1), fill='#303030')
+            draw.text((x0 + 2, y0 + 2), cat, '#ffffff')
+
+        composed.show()
