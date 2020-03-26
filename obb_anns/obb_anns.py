@@ -242,7 +242,8 @@ class OBBAnns:
             image files are in a subdirectory '[data_root]/imgs/[file_name]',
             then the img_dir is 'imgs'.
         :param seg_dir: Directory for the segmentation files. See img_dir
-            for an example.
+            for an example. If none is given, then an overlay of the
+            segmentation will not be generated.
         :type img_idx: int
         :type img_id: int
         :type data_root: str or None
@@ -264,36 +265,41 @@ class OBBAnns:
         # Calculate the directories that the actual image and segmentations
         # are in
         img_dir = data_root if img_dir is None else osp.join(data_root, img_dir)
-        seg_dir = data_root if seg_dir is None else osp.join(data_root, seg_dir)
 
         # Get the actual image filepath and the segmentation filepath
         img_fp = osp.join(img_dir, img_info['filename'])
-        seg_fp = osp.join(seg_dir, osp.splitext(img_info['filename'])[0]
-                          + '_seg.png')
+        print(f'Visualizing {img_fp}...')
 
         # Remember: PIL Images are in form (h, w, 3)
         img = Image.open(img_fp)
-        seg = Image.open(seg_fp)
 
-        # Here we overlay the segmentation on the original image using the
-        # colorcet colors
-        # First we need to get the new color values from colorcet
-        colors = [ImageColor.getrgb(i) for i in cc.glasbey]
-        colors = np.array(colors).reshape(768,).tolist()
-        colors[0:3] = [0, 0, 0]   # Set background to black
+        if seg_dir is not None:
+            seg_fp = osp.join(
+                data_root,
+                seg_dir,
+                osp.splitext(img_info['filename'])[0] + '_seg.png'
+            )
+            seg = Image.open(seg_fp)
 
-        # Then put the palette
-        seg.putpalette(colors)
+            # Here we overlay the segmentation on the original image using the
+            # colorcet colors
+            # First we need to get the new color values from colorcet
+            colors = [ImageColor.getrgb(i) for i in cc.glasbey]
+            colors = np.array(colors).reshape(768,).tolist()
+            colors[0:3] = [0, 0, 0]   # Set background to black
 
-        # Now the img and the segmentation can be composed together. Black
-        # areas in the segmentation (i.e. background) are ignored
-        seg_array = np.array(seg)
-        mask = np.zeros_like(seg_array)
-        mask[np.where(seg_array == 0)] = 255
-        mask = Image.fromarray(mask, mode='L')
+            # Then put the palette
+            seg.putpalette(colors)
 
-        composed = Image.composite(img, seg.convert('RGB'), mask)
-        draw = ImageDraw.Draw(composed)
+            # Now the img and the segmentation can be composed together. Black
+            # areas in the segmentation (i.e. background) are ignored
+            seg_array = np.array(seg)
+            mask = np.zeros_like(seg_array)
+            mask[np.where(seg_array == 0)] = 255
+            mask = Image.fromarray(mask, mode='L')
+
+            img = Image.composite(img, seg.convert('RGB'), mask)
+        draw = ImageDraw.Draw(img)
 
         # Now draw the bounding boxes onto the image
         for ann in ann_info.values():
@@ -301,7 +307,7 @@ class OBBAnns:
             bbox = ann['bbox']
             # We use a mod to make sure we get a color within the possible
             # color range
-            draw.polygon(bbox, outline=cc.glasbey[int(ann['cat_id']) % 256])
+            draw.polygon(bbox, outline='#00ff00')
 
             # Now draw the label below the bbox
             x0 = min(bbox[::2])
@@ -313,10 +319,15 @@ class OBBAnns:
             draw.rectangle((x0, y0, x1, y1), fill='#303030')
             draw.text((x0 + 2, y0 + 2), cat, '#ffffff')
 
-        composed.show()
+        img.show()
 
 if __name__ == '__main__':
-    a = OBBAnns('E:\Offline Docs\OBB\music\deepscores_oriented_val.json')
+    a = OBBAnns('E:\Offline Docs\OBB\music\deepscores_oriented_train.json')
     a.load_annotations()
-    a.visualize(img_idx=0, img_dir='images_png', seg_dir='pix_annotations_png')
-    input()
+    for i in range(len(a)):
+        a.visualize(img_idx=i, img_dir='images_png',
+                    seg_dir='pix_annotations_png')
+        # a.visualize(img_idx=i, img_dir='images_png')
+        response = input('Press q to quit or enter to continue.')
+        if response == 'q':
+            break
