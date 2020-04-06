@@ -14,6 +14,8 @@ import numpy as np
 import os.path as osp
 from PIL import Image, ImageColor, ImageDraw, ImageFont
 import colorcet as cc
+import pandas as pd
+import polyiou
 
 
 class OBBAnns:
@@ -91,7 +93,21 @@ class OBBAnns:
         self.dataset_info = data['info']
 
         self.cat_info = {int(k): v for k, v in data['categories'].items()}
-        self.ann_info = {int(k): v for k, v in data['annotations'].items()}
+
+        # Process annnotations
+        ann_id = []
+        anns = {'bbox': [],
+                'cat_id': [],
+                'area': [],
+                'img_id': []}
+
+        for k, v in data['annotations'].items():
+            ann_id.append(int(k))
+            anns['bbox'].append(v['bbox'])
+            anns['cat_id'].append(int(v['cat_id']))
+            anns['area'].append(v['area'])
+            anns['img_id'].append(v['img_id'])
+        self.ann_info = pd.DataFrame(anns, ann_id)
 
         self.img_info = data['images']
 
@@ -120,11 +136,19 @@ class OBBAnns:
         with open(proposals_file, 'r') as p_file:
             props = json.load(p_file)['proposals']
 
-        self.proposals = {i: [] for i in range(len(self.img_info))}
+        props_dict = {
+            'bbox': [],
+            'cat_id': [],
+            'img_idx': []
+        }
 
         for prop in props:
             prop_img_idx = self.img_idx_lookup[prop["img_id"]]
-            self.proposals[prop_img_idx].append(prop)
+            props_dict['bbox'].append(prop['bbox'])
+            props_dict['cat_id'].append(prop['cat_id'])
+            props_dict['img_idx'].append(prop_img_idx)
+
+        self.proposals = pd.DataFrame(props_dict)
 
         print('done! t={:.2f}s'.format(time() - start_time))
 
@@ -161,12 +185,14 @@ class OBBAnns:
         :param img_id: The img_id of the image.
         :type img_idx: int
         :type img_id: int
-        :returns The list of annotation information (dict) for that image.
-        :rtype: list
+        :returns: Annotation information (dict) for that image with the key
+            being the annotation ID and the value being the annotation
+            information.
+        :rtype: dict
         """
         self._xor_args(img_idx, img_id)
 
-        if img_idx:
+        if img_idx is not None:
             return self.get_ann_ids(self.img_info[img_idx]['ann_ids'])
         else:
             ann_ids = self.img_info[self.img_idx_lookup[img_id]]['ann_ids']
@@ -185,13 +211,12 @@ class OBBAnns:
 
         :param ann_ids: The annotation ids that are desired.
         :type ann_ids: list
-        :returns: The annotation information as a dictionary with the key being
-            the annotation img_id.
-        :rtype: dict
+        :returns: The annotation information requested.
+        :rtype: pd.DataFrame
         """
         assert isinstance(ann_ids, list), 'Given ann_ids must be a list or ' \
                                           'tuple'
-        return {ann_id: self.ann_info[ann_id] for ann_id in ann_ids}
+        return self.ann_info.loc[ann_ids, :]
 
     def get_img_ann_pair(self, idxs=None, ids=None):
         """Gets the information and annotations at the given indices/ids.
@@ -218,10 +243,81 @@ class OBBAnns:
     def calculate_metrics(self):
         """Calculates proposed bounding box validation metrics.
 
+        Calculates the AP with IoU = .50. Will return a mean AP as well
+        as a class-wise AP.
+        Also calculates the AR with 100 detections per image.
+
         :returns A dictionary of calculated metric values.
         :rtype: dict
         """
-        raise NotImplementedError
+        def calculate_tpfp(detection, img_gt):
+            """Calculates whether a detection is a true or false positive.
+
+            :param pd.Series detection: Data frame for the detection
+            :param pd.DataFrame img_gt: Ground truth for the image.
+            :returns: ann_id of true positive bbox. If the detection is a
+                false positive, then returns -1.
+            :rtype: int
+            """
+            same_cat_gt = img_gt[img_gt['cat_id'] == detection['cat_id']]
+            df = pd.DataFrame({
+                'gt': same_cat_gt['bbox'],
+                'det': [detection['bbox'] * len(same_cat_gt)]
+            })
+
+            def calculate_overlap(row):
+                return polyiou.iou_poly(polyiou.VectorDouble(row['gt']),
+                                        polyiou.VectorDouble(row['det']))
+
+            overlaps = df.apply(calculate_overlap, 1)
+            if overlaps.max() >= 0.5:
+                # Means that there's at least one with an overlap. We take the
+                # object with highest overlap.
+                return overlaps.idxmax()
+            else:
+                return -1
+
+        tp = []
+        fp = []
+        for img_idx in self.proposals:
+            # For every image, look at each detection
+            # img_props is a pandas DataFrame
+            img_props = self.proposals[self.proposals['img_idx'] == img_idx]
+            img_gt = self.get_anns(img_idx=img_idx)  # This is a dict of dicts
+
+            # For all detections in an image, compare them to the ground truths
+            for det_idx, det in img_props.iterrows():
+                val = calculate_tpfp(det, img_gt)
+                if val < 0:
+                    fp.append(val)
+                else:
+                    tp.append(val)
+
+        # Count number of False Positive (i.e. calculate_tpfp returned -1)
+        tot_fp = len(fp)
+
+        # Count number of ground truths with a corresponding detection
+        # (True Positive)
+        tp_set = set(tp)
+        tot_tp = len(tp_set)
+
+        # Count number of ground truths with multiple corresponding
+        # detections (False Positive)
+        tot_fp += len(tp) - len(tp_set)
+
+        # Count number of ground truths without a corresponding detection
+        # (False Negative)
+        ann_gt_idxs = set([index for index, _ in self.ann_info.iterrows()])
+        fn = []
+        for i in list(tp_set):
+            if i not in ann_gt_idxs:
+               fn.append(i)
+
+        precision = tot_tp / (tot_tp + tot_fp)
+        recall = tot_tp / (tot_tp + len(fn))
+
+        return {'precision': precision,
+                'recall': recall}
 
     def visualize(self,
                   img_idx=None,
@@ -302,7 +398,7 @@ class OBBAnns:
         draw = ImageDraw.Draw(img)
 
         # Now draw the bounding boxes onto the image
-        for ann in ann_info.values():
+        for ann in ann_info.to_dict('records'):
             cat = self.cat_info[int(ann['cat_id'])]
             bbox = ann['bbox']
             # We use a mod to make sure we get a color within the possible
@@ -322,8 +418,9 @@ class OBBAnns:
         img.show()
 
 if __name__ == '__main__':
-    a = OBBAnns('E:\Offline Docs\OBB\music\deepscores_oriented_train.json')
+    a = OBBAnns('E:\Offline Docs\DeepScores\music\deepscores_oriented_train.json')
     a.load_annotations()
+    a.get_anns(img_idx=0)
     for i in range(len(a)):
         a.visualize(img_idx=i, img_dir='images_png',
                     seg_dir='pix_annotations_png')
