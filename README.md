@@ -10,7 +10,23 @@ We choose to use a JSON file for the annotations as it is already familiar (from
 We also choose to store the segmentation information in a separate PNG file to reduce the size of the annotation file, as well as to make dynamic loading of annotation segmentation simpler, especially in cases where there may be very many instances of objects in a single image.
 Finally, we choose to process predictions from a proposals file instead of from directly taking proposals as a function argument to make it easier to process proposals asynchronously as well as after the fact from previous proposals.
 
-## Annotation schema:
+# Manual Installation
+1.  Clone this repository
+2.  Install swig.
+    This can be installed executing the following line on linux
+    ```bash
+    sudo apt install swig
+    ```
+    or by downloading the windows executable at [swig.org](http://www.swig.org/download.html)
+    
+    If installing using the windows executable, then the following must be variable must be added to your environment:
+    ```
+    TBD
+    ``` 
+
+3.  install the obb_anns module.
+
+# Annotation schema:
 
 ```
 {
@@ -58,7 +74,6 @@ Finally, we choose to process predictions from a proposals file instead of from 
 - The segmentation file is a grayscale 8-bit png image where the pixel values correspond to the cat_id.
 - If more categories are required, alternative mappings can be defined by overriding the _parse_ann_info method.
 
-
 ## Proposal schema
 Proposals are what the network should generate so that this package is able to process the proposals to calculate precision, accuracy, and recall.
 
@@ -79,3 +94,7 @@ Proposals are what the network should generate so that this package is able to p
 - The proposals file is in JSON format.
 - bbox is in the same format as for annotations
 - A check is done to make sure all img_idxs and cat_ids that are referred to in the proposal file is in the annotation file to make sure that the proposals corresponds to the correct annotations file.
+
+
+# Dependencies
+This toolkit works with the evaluation metrics conceived in the [DOTA Dataset](https://captain-whu.github.io/DOTA/tasks.html) and uses the polyiou implementation written for their Task 1 Evaluation.
