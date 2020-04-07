@@ -1,6 +1,6 @@
 """Test OBB.
 
-Used to run the obb_anns.py with testing data.
+Used to run the obb_anns.py with debugging data.
 
 Author:
     Yvan Satyawan <y_satyawan@hotmail.com>
