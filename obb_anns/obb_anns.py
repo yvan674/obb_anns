@@ -10,6 +10,7 @@ Created on:
 """
 import json
 from time import time
+from datetime import datetime
 import numpy as np
 import os.path as osp
 from PIL import Image, ImageColor, ImageDraw, ImageFont
@@ -35,6 +36,7 @@ class OBBAnns:
         - get_cats(): Gets all cats in the dataset.
         - get_ann_ids(): Gets annotation information by annotation ID.
         - get_img_ann_pairs(): Gets image-annotation pairs by image.
+        - get_img_props(): Gets proposasls that belong to a given image.
         - calculate_metrics(): Calculate validation metrics from proposals.
         - visualize_anns(): Visualizes annotations for an image using Pillow.
 
@@ -240,6 +242,27 @@ class OBBAnns:
 
         return imgs, anns
 
+    def get_img_props(self, idxs=None, ids=None):
+        """Gets the proposals of an image at a given index or with a given ID.
+
+        :param idxs: The indices of the desired images.
+        :param ids: The ids of the desired images
+        :type idxs: list or tuple
+        :type ids: list or tuple
+        :returns: The information of the requested images as a tuple (list of
+            image info, corresponding annotations)
+        :rtype: pd.DataFrame
+        :raises: AssertionError if both idxs and ids are given.
+        """
+        self._xor_args(idxs, ids)
+
+        # Proposals are checked by idx, not by id so we need to find their idxs
+        if ids is not None:
+            idxs = [self.img_idx_lookup[id] for id in ids]
+
+        selector = self.proposals.img_idx.isin(idxs)
+        return self.proposals[selector]
+
     def calculate_metrics(self):
         """Calculates proposed bounding box validation metrics.
 
@@ -311,7 +334,7 @@ class OBBAnns:
         fn = []
         for i in list(tp_set):
             if i not in ann_gt_idxs:
-               fn.append(i)
+                fn.append(i)
 
         precision = tot_tp / (tot_tp + tot_fp)
         recall = tot_tp / (tot_tp + len(fn))
@@ -319,32 +342,64 @@ class OBBAnns:
         return {'precision': precision,
                 'recall': recall}
 
+    def _draw_bbox(self, draw, ann, color):
+        """Draws the bounding box onto an image with a given color.
+
+        :param ImageDraw.ImageDraw draw: ImageDraw object to draw with.
+        :param dict ann: Annotation information dictionary of the current
+            bounding box to draw.
+        :param str color: Color to draw the bounding box in as a hex string,
+            e.g. '#00ff00'
+        :return: The drawn object.
+        :rtype: ImageDraw.ImageDraw
+        """
+        cat = self.cat_info[int(ann['cat_id'])]
+        bbox = ann['bbox']
+        # We use a mod to make sure we get a color within the possible
+        # color range
+        draw.polygon(bbox, outline=color)
+
+        # Now draw the label below the bbox
+        x0 = min(bbox[::2])
+        y0 = max(bbox[1::2])
+
+        x1, y1 = ImageFont.load_default().getsize(cat)
+        x1 += x0 + 4
+        y1 += y0 + 4
+        draw.rectangle((x0, y0, x1, y1), fill='#303030')
+        draw.text((x0 + 2, y0 + 2), cat, '#ffffff')
+        return draw
+
     def visualize(self,
                   img_idx=None,
                   img_id=None,
                   data_root=None,
                   img_dir=None,
-                  seg_dir=None):
+                  seg_dir=None,
+                  out_dir=None,
+                  show=True):
         """Uses PIL to visualize the ground truth labels of a given image.
 
         img_idx and img_id are mutually exclusive. Only one can be used at a
-        time.
+        time. If proposals are currently loaded, then also visualizes the
+        proposals.
 
-        :param img_idx: The index of the desired image.
-        :param img_id: The id of the desired image.
-        :param data_root: Path to the root data directory. If none is given, it
-            is assumed to be the parent directory of the ann_file path.
-        :param img_dir: Directory for the image files. For example, if the
-            image files are in a subdirectory '[data_root]/imgs/[file_name]',
-            then the img_dir is 'imgs'.
-        :param seg_dir: Directory for the segmentation files. See img_dir
-            for an example. If none is given, then an overlay of the
+        :param int img_idx: The index of the desired image.
+        :param int img_id: The id of the desired image.
+        :param Optional[str] data_root: Path to the root data directory. If
+            none is given, it is assumed to be the parent directory of the
+            ann_file path.
+        :param Optional[str] img_dir: Directory for the image files. For
+            example, if the image files are in a subdirectory
+            '[data_root]/imgs/[file_name]', then the img_dir is 'imgs'.
+        :param Optional[str] seg_dir: Directory for the segmentation files. See
+            img_dir for an example. If none is given, then an overlay of the
             segmentation will not be generated.
-        :type img_idx: int
-        :type img_id: int
-        :type data_root: str or None
-        :type img_dir: str or None
-        :type seg_dir: str or None
+        :param Optional[str] out_dir: Directory to save the visualizations in.
+            If a directory is given, then the visualizations produced will also
+            be saved.
+        :param bool show: Whether or not to use pillow's show() method to
+            visualize the image.
         """
         # Since we can only visualize a single image at a time, we do i[0] so
         # that we don't have to deal with lists. get_img_ann_pair() returns a
@@ -397,30 +452,27 @@ class OBBAnns:
             img = Image.composite(img, seg.convert('RGB'), mask)
         draw = ImageDraw.Draw(img)
 
-        # Now draw the bounding boxes onto the image
+        # Now draw the gt bounding boxes onto the image
         for ann in ann_info.to_dict('records'):
-            cat = self.cat_info[int(ann['cat_id'])]
-            bbox = ann['bbox']
-            # We use a mod to make sure we get a color within the possible
-            # color range
-            draw.polygon(bbox, outline='#00ff00')
+            draw = self._draw_bbox(draw, ann, '#00ff00')
 
-            # Now draw the label below the bbox
-            x0 = min(bbox[::2])
-            y0 = max(bbox[1::2])
+        if self.proposals is not None:
+            prop_info = self.get_img_props(idxs=img_idx, ids=img_id)
 
-            x1, y1 = ImageFont.load_default().getsize(cat)
-            x1 += x0 + 4
-            y1 += y0 + 4
-            draw.rectangle((x0, y0, x1, y1), fill='#303030')
-            draw.text((x0 + 2, y0 + 2), cat, '#ffffff')
+            for prop in prop_info.to_dict('records'):
+                draw = self._draw_bbox(draw, prop, '#ff0000')
 
-        img.show()
+        if show:
+            img.show()
+        if out_dir is not None:
+            img.save(osp.join(out_dir, datetime.now().strftime('%m-%d_%H%M%S')))
+
 
 if __name__ == '__main__':
-    a = OBBAnns('E:\Offline Docs\DeepScores\music\deepscores_oriented_train.json')
+    root = 'E:\\Offline Docs\\DeepScores\\deepscores_obb'
+    a = OBBAnns(osp.join(root, 'deepscores_oriented_small.json'))
     a.load_annotations()
-    a.get_anns(img_idx=0)
+    a.load_proposals(osp.join(root, 'proposals.json'))
     for i in range(len(a)):
         a.visualize(img_idx=i, img_dir='images_png',
                     seg_dir='pix_annotations_png')
