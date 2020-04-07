@@ -16,7 +16,7 @@ import os.path as osp
 from PIL import Image, ImageColor, ImageDraw, ImageFont
 import colorcet as cc
 import pandas as pd
-import polyiou
+from .polyiou import iou_poly, VectorDouble
 
 
 class OBBAnns:
@@ -291,8 +291,8 @@ class OBBAnns:
             })
 
             def calculate_overlap(row):
-                return polyiou.iou_poly(polyiou.VectorDouble(row['gt']),
-                                        polyiou.VectorDouble(row['det']))
+                return iou_poly(VectorDouble(row['gt']),
+                                VectorDouble(row['det']))
 
             overlaps = df.apply(calculate_overlap, 1)
             max_overlap = overlaps.max()
