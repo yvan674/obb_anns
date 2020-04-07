@@ -466,17 +466,3 @@ class OBBAnns:
             img.show()
         if out_dir is not None:
             img.save(osp.join(out_dir, datetime.now().strftime('%m-%d_%H%M%S')))
-
-
-if __name__ == '__main__':
-    root = 'E:\\Offline Docs\\DeepScores\\deepscores_obb'
-    a = OBBAnns(osp.join(root, 'deepscores_oriented_small.json'))
-    a.load_annotations()
-    a.load_proposals(osp.join(root, 'proposals.json'))
-    for i in range(len(a)):
-        a.visualize(img_idx=i, img_dir='images_png',
-                    seg_dir='pix_annotations_png')
-        # a.visualize(img_idx=i, img_dir='images_png')
-        response = input('Press q to quit or enter to continue.')
-        if response == 'q':
-            break
