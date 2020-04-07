@@ -190,7 +190,7 @@ class OBBAnns:
         :returns: Annotation information (dict) for that image with the key
             being the annotation ID and the value being the annotation
             information.
-        :rtype: dict
+        :rtype: pd.DataFrame
         """
         self._xor_args(img_idx, img_id)
 
@@ -266,9 +266,10 @@ class OBBAnns:
     def calculate_metrics(self):
         """Calculates proposed bounding box validation metrics.
 
+        Calculates accuracy as total true positives / total detections
         Calculates the AP with IoU = .50. Will return a mean AP as well
         as a class-wise AP.
-        Also calculates the AR with 100 detections per image.
+        Calculates the AR with 100 detections per image.
 
         :returns A dictionary of calculated metric values.
         :rtype: dict
@@ -279,8 +280,9 @@ class OBBAnns:
             :param pd.Series detection: Data frame for the detection
             :param pd.DataFrame img_gt: Ground truth for the image.
             :returns: ann_id of true positive bbox. If the detection is a
-                false positive, then returns -1.
-            :rtype: int
+                false positive, then returns -1. Also returns the overlap with
+                the true positive bbox.
+            :rtype: dict[int, float]
             """
             same_cat_gt = img_gt[img_gt['cat_id'] == detection['cat_id']]
             df = pd.DataFrame({
@@ -293,24 +295,28 @@ class OBBAnns:
                                         polyiou.VectorDouble(row['det']))
 
             overlaps = df.apply(calculate_overlap, 1)
-            if overlaps.max() >= 0.5:
+            max_overlap = overlaps.max()
+            if max_overlap >= 0.5:
                 # Means that there's at least one with an overlap. We take the
                 # object with highest overlap.
-                return overlaps.idxmax()
+                return {'bbox_id': overlaps.idxmax(), 'overlap': max_overlap}
             else:
-                return -1
+                return {'bbox_id': -1, 'overlap': 0.}
 
         tp = []
         fp = []
+        tot_props = 0
+
         for img_idx in self.proposals:
             # For every image, look at each detection
             # img_props is a pandas DataFrame
             img_props = self.proposals[self.proposals['img_idx'] == img_idx]
             img_gt = self.get_anns(img_idx=img_idx)  # This is a dict of dicts
+            tot_props += len(img_props)
 
             # For all detections in an image, compare them to the ground truths
             for det_idx, det in img_props.iterrows():
-                val = calculate_tpfp(det, img_gt)
+                val, overlap = calculate_tpfp(det, img_gt)
                 if val < 0:
                     fp.append(val)
                 else:
@@ -336,10 +342,12 @@ class OBBAnns:
             if i not in ann_gt_idxs:
                 fn.append(i)
 
+        accuracy = tot_tp / tot_props
         precision = tot_tp / (tot_tp + tot_fp)
         recall = tot_tp / (tot_tp + len(fn))
 
-        return {'precision': precision,
+        return {'accuracy': accuracy,
+                'precision': precision,
                 'recall': recall}
 
     def _draw_bbox(self, draw, ann, color):
