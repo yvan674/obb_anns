@@ -36,7 +36,8 @@ Finally, we choose to process predictions from a proposals file instead of from 
         "version": (str) version number,
         "year": (int) year released,
         "contributor": (str) contributor,
-        "date_created": (str) "YYYY/MM/DD"
+        "date_created": (str) "YYYY/MM/DD",
+        "url": (Optional str) URL where dataset can be found
     },
     "categories": {
         "cat_id": (str) category_name,
@@ -44,20 +45,21 @@ Finally, we choose to process predictions from a proposals file instead of from 
     },
     "images": [
         {
-            "id": (int) n,
+            "id": (str) n,
             "filename": (str) 'file_name.jpg',
             "width": (int) x,
             "height": (int) y,
-            "ann_ids": [(int) ann_ids]
+            "ann_ids": [(str) ann_ids]
         },
         ...
     ],
     "annotations": {
         "ann_id": {
-            "bbox": (list of floats) [x1, y1,..., x4, y4],
-            "cat_id": (int) cat_id,
+            "a_bbox": (list of floats) [x0, y0, x1, y1],
+            "o_bbox": (list of floats) [x0, y0, x1, y1, x2, y2, x3, y3],
+            "cat_id": (str) cat_id,
             "area": (float) area in pixels,
-            "img_id": (int) img_id
+            "img_id": (str) img_id
         },
         ...
     }
@@ -67,8 +69,7 @@ Finally, we choose to process predictions from a proposals file instead of from 
 Notes:
 - The annotation file is in JSON format.
 - The 'annotations' field is in absolute x, y positions.
-- cat_id, and ann_id are stringified ints.
-- cat_id, ann_id, and img_id starts at 1.
+- cat_id, ann_id, and img_id are stringified ints and start at 1.
 
 ### Segmentation Masks
 - Segmentations are found in a png file named '[filename]_seg.png'
