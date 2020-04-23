@@ -27,7 +27,25 @@ Finally, we choose to process predictions from a proposals file instead of from 
     python3 setup.py develop  # Installs it in place
     ```
 
-## Annotation schema:
+## Annotation schema
+
+### Directory Structure
+The OBBAnns toolkit assumes the following directory structure
+
+```
+dataset/
+├── images/
+│   ├── img1.png
+│   ├── img2.png
+│   └── ...
+├── segmentation/
+│   ├── img1_seg.png
+│   ├── img2_seg.png
+│   └── ...
+└── annotations.json
+
+```
+The file top level directory and the annotations file can have any name, but the annotations file must be within the top level directory. 
 
 ```
 {
@@ -39,17 +57,22 @@ Finally, we choose to process predictions from a proposals file instead of from 
         "date_created": (str) "YYYY/MM/DD",
         "url": (Optional str) URL where dataset can be found
     },
+    "datasets": ["deepscores", "muscima"]
     "categories": {
-        "cat_id": (str) category_name,
+        "cat_id": {
+            "name": (str) category_name,
+            "dataset": (str) "deepscores",
+            "color": (int or tuple[int]) color value of cat in segmentation file
+        },
         ...
     },
     "images": [
         {
             "id": (str) n,
-            "filename": (str) 'file_name.jpg',
+            "file_name": (str) "file_name.jpg",
             "width": (int) x,
             "height": (int) y,
-            "ann_ids": [(str) ann_ids]
+            "ann_ids": (list[str]) ann_ids
         },
         ...
     ],
@@ -68,11 +91,17 @@ Finally, we choose to process predictions from a proposals file instead of from 
 
 Notes:
 - The annotation file is in JSON format.
-- The 'annotations' field is in absolute x, y positions.
-- cat_id, ann_id, and img_id are stringified ints and start at 1.
+- The field `a_bbox` and `o_bbox` of annotations is the aligned and oriented bounding boxes for each annotation, respectively.
+- The bounding boxes are given as absolute values.
+- `a_bbox` contains the coordinates of the top left and bottom right corners.
+- `o_bbox` contains the coordinates of each of the corners of the oriented bounding box. 
+- `cat_id`, `ann_id`, and `img_id` are stringified ints and start at 0.
+- The top level field `datasets` is meant to be used when a dataset can be used with different class names.
+For example, the classes of the MUSCIMA++ dataset is a subset of the classes of the DeepScoresV2 dataset.
+By adding this field and specifying which class belongs to which dataset under categories, this allows the DeepScoresV2 dataset to be compatible for comparison with the MUSCIMA++ dataset.
 
 ### Segmentation Masks
-- Segmentations are found in a png file named '[filename]_seg.png'
+- Segmentations are found in a png file named '[filename]_seg.png' in the directory "segmentation".
 - The segmentation file is a grayscale 8-bit png image where the pixel values correspond to the cat_id.
 - If more categories are required, alternative mappings can be defined by overriding the _parse_ann_info method.
 
@@ -83,7 +112,7 @@ Proposals are what the network should generate so that this package is able to p
 {
     "proposals": [
         {
-            "bbox": (list of floats) [x1, y1,..., x4, y4],
+            "bbox": list[float] [x1, y1,..., x4, y4], or list[float] [x0, y0, x1, y1]
             "cat_id": (int) cat_id,
             "img_id": (int) img_id
         },
@@ -94,7 +123,8 @@ Proposals are what the network should generate so that this package is able to p
 
 Notes:
 - The proposals file is in JSON format.
-- bbox is in the same format as for annotations
+- `bbox` is in the same format as for annotations
+- If `bbox` has a length of 8, it is treated as an oriented bounding box. If it has length 4, then it is treated as an aligned bbox.
 - A check is done to make sure all img_idxs and cat_ids that are referred to in the proposal file is in the annotation file to make sure that the proposals corresponds to the correct annotations file.
 
 ## Usage

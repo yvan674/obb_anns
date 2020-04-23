@@ -350,7 +350,7 @@ class OBBAnns:
                 'precision': precision,
                 'recall': recall}
 
-    def _draw_bbox(self, draw, ann, color):
+    def _draw_bbox(self, draw, ann, color, oriented):
         """Draws the bounding box onto an image with a given color.
 
         :param ImageDraw.ImageDraw draw: ImageDraw object to draw with.
@@ -358,14 +358,18 @@ class OBBAnns:
             bounding box to draw.
         :param str color: Color to draw the bounding box in as a hex string,
             e.g. '#00ff00'
+        :param bool oriented: Choose between drawing oriented or aligned
+            bounding box.
         :return: The drawn object.
         :rtype: ImageDraw.ImageDraw
         """
         cat = self.cat_info[int(ann['cat_id'])]
-        bbox = ann['bbox']
-        # We use a mod to make sure we get a color within the possible
-        # color range
-        draw.polygon(bbox, outline=color)
+        if oriented:
+            bbox = ann['o_bbox']
+            draw.polygon(bbox, outline=color)
+        else:
+            bbox = ann['a_bbox']
+            draw.rectangle(bbox, outline=color)
 
         # Now draw the label below the bbox
         x0 = min(bbox[::2])
@@ -385,6 +389,7 @@ class OBBAnns:
                   img_dir=None,
                   seg_dir=None,
                   out_dir=None,
+                  oriented=True,
                   show=True):
         """Uses PIL to visualize the ground truth labels of a given image.
 
@@ -406,6 +411,8 @@ class OBBAnns:
         :param Optional[str] out_dir: Directory to save the visualizations in.
             If a directory is given, then the visualizations produced will also
             be saved.
+        :param Optional[bool] oriented: Whether to show aligned or oriented
+            bounding boxes. A value of True means it will show oriented boxes.
         :param bool show: Whether or not to use pillow's show() method to
             visualize the image.
         """
@@ -462,7 +469,7 @@ class OBBAnns:
 
         # Now draw the gt bounding boxes onto the image
         for ann in ann_info.to_dict('records'):
-            draw = self._draw_bbox(draw, ann, '#00ff00')
+            draw = self._draw_bbox(draw, ann, '#00ff00', oriented)
 
         if self.proposals is not None:
             prop_info = self.get_img_props(idxs=img_idx, ids=img_id)
