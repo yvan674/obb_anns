@@ -21,9 +21,9 @@ Finally, we choose to process predictions from a proposals file instead of from 
     If installing using the windows executable, then the path to the SWIG executable must be added to the `Path` variable.
 
 2.  Install the obb_anns module.
-    This can be done with the following command if you wish to install it to the system.
+    This can be done with the following command.
     ```bash
-    python3 setup.py install  # Installs it to the current python install, or
+    git clone https://github.com/yvan674/obb_anns
     python3 setup.py develop  # Installs it in place
     ```
 

@@ -2,7 +2,7 @@ from setuptools import setup
 from setuptools.command.install import install
 from setuptools.command.develop import develop
 import subprocess
-import pathlib
+from os.path import join
 
 
 description = 'A toolkit to work with the Oriented Bounding Boxes annotation ' \
@@ -28,12 +28,10 @@ def build_with_swig(command_subclass):
             raise FileNotFoundError("SWIG does not seem to be installed or "
                                     "could not be found in PATH")
 
-        # Find the script dir
-        script_dir = pathlib.Path(__file__).parent.resolve()
-        script_dir = script_dir / 'build' / 'lib' / "obb_anns" / "polyiou" \
-                     / "polyiou.i"
+        polyiou_dir = join("obb_anns","polyiou")
         subprocess.call(
-            "swig -c++ -python %s" % script_dir,
+            ["swig", "-c++", "-python", "polyiou.i"],
+            cwd=polyiou_dir,
             stdout=subprocess.DEVNULL
         )
         orig_run(self)
@@ -47,11 +45,10 @@ class InstallPolyIOU(install):
     """Installs the PolyIOU extension."""
     def run(self):
         install.run(self)
-        script_dir = pathlib.Path(__file__).parent.resolve()
-        script_dir = script_dir / 'build' / 'lib' / 'obb_anns' / 'polyiou' \
-                     / 'setup.py'
+        polyiou_dir = join('obb_anns', 'polyiou')
         subprocess.call(
-            "python3 %s build_ext" % script_dir,
+            ["python3", "setup.py", "build_ext"],
+            cwd=polyiou_dir,
             stdout=subprocess.DEVNULL
         )
         print("polyiou extension installed!")
@@ -61,11 +58,10 @@ class DevelopPolyIOU(develop):
     """Installs the PolyIOU extension in place"""
     def run(self):
         develop.run(self)
-        script_dir = pathlib.Path(__file__).parent.resolve()
-        script_dir = script_dir / 'build' / 'lib' / 'obb_anns' / 'polyiou' \
-                     / 'setup.py'
+        polyiou_dir = join('obb_anns', 'polyiou')
         subprocess.call(
-            "python3 %s build_ext --inplace" % script_dir,
+            ["python3", "setup.py", "build_ext", "--inplace"],
+            cwd=polyiou_dir,
             stdout=subprocess.DEVNULL
         )
         print("polyiou extension installed in place!")
@@ -102,6 +98,7 @@ setup(name='obb_anns',
       ],
       python_requires='>=3',
       cmdclass={'install': InstallPolyIOU,
-                'develop': DevelopPolyIOU},
+                'develop': DevelopPolyIOU,
+                },
       include_package_data=True,
       zip_safe=False)
