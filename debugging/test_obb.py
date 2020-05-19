@@ -19,7 +19,7 @@ def parse_args():
                         help='path to the root of the dataset directory')
     parser.add_argument('ANNS', type=str,
                         help='name of the annotation file to use')
-    parser.add_argument('PROPOSAL', type=str,
+    parser.add_argument('PROPOSAL', type=str, nargs='?',
                         help='name of the proposals json')
     return parser.parse_args()
 
@@ -29,10 +29,10 @@ if __name__ == '__main__':
 
     a = OBBAnns(join(args.ROOT, args.ANNS))
     a.load_annotations()
-    a.load_proposals(join(args.ROOT, args.PROPoSAL))
+    if args.PROPOSAL:
+        a.load_proposals(join(args.ROOT, args.PROPoSAL))
     for i in range(len(a)):
-        a.visualize(img_idx=i, img_dir='images_png',
-                    seg_dir='pix_annotations_png')
+        a.visualize(img_idx=i)
         # a.visualize(img_idx=i, img_dir='images_png')
         response = input('Press q to quit or enter to continue.')
         if response == 'q':
