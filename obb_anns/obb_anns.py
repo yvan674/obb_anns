@@ -493,4 +493,5 @@ class OBBAnns:
         if show:
             img.show()
         if out_dir is not None:
-            img.save(osp.join(out_dir, datetime.now().strftime('%m-%d_%H%M%S')))
+            img.save(osp.join(out_dir, datetime.now().strftime('%m-%d_%H%M%S'))
+                     + '.png')
