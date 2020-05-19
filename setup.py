@@ -30,7 +30,8 @@ def build_with_swig(command_subclass):
 
         # Find the script dir
         script_dir = pathlib.Path(__file__).parent.resolve()
-        script_dir = script_dir / "obb_anns" / "polyiou" / "polyiou.i"
+        script_dir = script_dir / 'build' / 'lib' / "obb_anns" / "polyiou" \
+                     / "polyiou.i"
         subprocess.call(
             "swig -c++ -python %s" % script_dir,
             stdout=subprocess.DEVNULL
@@ -47,7 +48,8 @@ class InstallPolyIOU(install):
     def run(self):
         install.run(self)
         script_dir = pathlib.Path(__file__).parent.resolve()
-        script_dir = script_dir / 'obb_anns'/ 'polyiou' / 'setup.py'
+        script_dir = script_dir / 'build' / 'lib' / 'obb_anns' / 'polyiou' \
+                     / 'setup.py'
         subprocess.call(
             "python3 %s build_ext" % script_dir,
             stdout=subprocess.DEVNULL
@@ -60,7 +62,8 @@ class DevelopPolyIOU(develop):
     def run(self):
         develop.run(self)
         script_dir = pathlib.Path(__file__).parent.resolve()
-        script_dir = script_dir / 'obb_anns' / 'polyiou' / 'setup.py'
+        script_dir = script_dir / 'build' / 'lib' / 'obb_anns' / 'polyiou' \
+                     / 'setup.py'
         subprocess.call(
             "python3 %s build_ext --inplace" % script_dir,
             stdout=subprocess.DEVNULL
