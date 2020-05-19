@@ -27,7 +27,7 @@ def build_with_swig(command_subclass):
             raise FileNotFoundError("SWIG does not seem to be installed or "
                                     "could not be found in PATH")
         subprocess.call(
-            "swig -c++ -python polyiou/polyiou.i",
+            "swig -c++ -python build/lib/obb_anns/polyiou/polyiou.i",
             stdout=subprocess.DEVNULL
         )
         orig_run(self)
@@ -42,7 +42,7 @@ class InstallPolyIOU(install):
     def run(self):
         install.run(self)
         subprocess.call(
-            "python3 polyiou/setup.py build_ext",
+            "python3 build/lib/obb_anns/polyiou/setup.py build_ext",
             stdout=subprocess.DEVNULL
         )
         print("polyiou extension installed!")
@@ -53,7 +53,7 @@ class DevelopPolyIOU(develop):
     def run(self):
         develop.run(self)
         subprocess.call(
-            "python3 polyiou/setup.py build_ext --inplace",
+            "python3 build/lib/obb_anns/polyiou/setup.py build_ext --inplace",
             stdout=subprocess.DEVNULL
         )
         print("polyiou extension installed in place!")
