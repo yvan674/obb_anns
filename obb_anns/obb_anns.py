@@ -16,7 +16,7 @@ import os.path as osp
 from PIL import Image, ImageColor, ImageDraw, ImageFont
 import colorcet as cc
 import pandas as pd
-import polyiou
+from .polyiou import iou_poly, VectorDouble
 
 
 class OBBAnns:
@@ -51,6 +51,7 @@ class OBBAnns:
         self.dataset_info = None
         self.img_info = None
         self.img_idx_lookup = dict()
+        self.annotation_sets = None
         self.cat_info = None
         self.ann_info = None
 
@@ -93,22 +94,27 @@ class OBBAnns:
             data = json.load(ann_file)
 
         self.dataset_info = data['info']
+        self.annotation_sets = data['annotation_sets']
 
         self.cat_info = {int(k): v for k, v in data['categories'].items()}
 
         # Process annnotations
         ann_id = []
-        anns = {'bbox': [],
+        anns = {'a_bbox': [],
+                'o_bbox': [],
                 'cat_id': [],
                 'area': [],
-                'img_id': []}
+                'img_id': [],
+                'comments': []}
 
         for k, v in data['annotations'].items():
             ann_id.append(int(k))
-            anns['bbox'].append(v['bbox'])
-            anns['cat_id'].append(int(v['cat_id']))
+            anns['a_bbox'].append(v['a_bbox'])
+            anns['o_bbox'].append(v['o_bbox'])
+            anns['cat_id'].append([int(i) for i in v['cat_id']])
             anns['area'].append(v['area'])
             anns['img_id'].append(v['img_id'])
+            anns['comments'].append(v['comments'])
         self.ann_info = pd.DataFrame(anns, ann_id)
 
         self.img_info = data['images']
@@ -190,7 +196,7 @@ class OBBAnns:
         :returns: Annotation information (dict) for that image with the key
             being the annotation ID and the value being the annotation
             information.
-        :rtype: dict
+        :rtype: pd.DataFrame
         """
         self._xor_args(img_idx, img_id)
 
@@ -212,12 +218,13 @@ class OBBAnns:
         """Gets the annotation information for a given list of ann_ids.
 
         :param ann_ids: The annotation ids that are desired.
-        :type ann_ids: list
+        :type ann_ids: list[str] or list[int]
         :returns: The annotation information requested.
         :rtype: pd.DataFrame
         """
         assert isinstance(ann_ids, list), 'Given ann_ids must be a list or ' \
                                           'tuple'
+        ann_ids = [int(i) for i in ann_ids]
         return self.ann_info.loc[ann_ids, :]
 
     def get_img_ann_pair(self, idxs=None, ids=None):
@@ -266,9 +273,10 @@ class OBBAnns:
     def calculate_metrics(self):
         """Calculates proposed bounding box validation metrics.
 
+        Calculates accuracy as total true positives / total detections
         Calculates the AP with IoU = .50. Will return a mean AP as well
         as a class-wise AP.
-        Also calculates the AR with 100 detections per image.
+        Calculates the AR with 100 detections per image.
 
         :returns A dictionary of calculated metric values.
         :rtype: dict
@@ -279,8 +287,9 @@ class OBBAnns:
             :param pd.Series detection: Data frame for the detection
             :param pd.DataFrame img_gt: Ground truth for the image.
             :returns: ann_id of true positive bbox. If the detection is a
-                false positive, then returns -1.
-            :rtype: int
+                false positive, then returns -1. Also returns the overlap with
+                the true positive bbox.
+            :rtype: dict[int, float]
             """
             same_cat_gt = img_gt[img_gt['cat_id'] == detection['cat_id']]
             df = pd.DataFrame({
@@ -289,28 +298,32 @@ class OBBAnns:
             })
 
             def calculate_overlap(row):
-                return polyiou.iou_poly(polyiou.VectorDouble(row['gt']),
-                                        polyiou.VectorDouble(row['det']))
+                return iou_poly(VectorDouble(row['gt']),
+                                VectorDouble(row['det']))
 
             overlaps = df.apply(calculate_overlap, 1)
-            if overlaps.max() >= 0.5:
+            max_overlap = overlaps.max()
+            if max_overlap >= 0.5:
                 # Means that there's at least one with an overlap. We take the
                 # object with highest overlap.
-                return overlaps.idxmax()
+                return {'bbox_id': overlaps.idxmax(), 'overlap': max_overlap}
             else:
-                return -1
+                return {'bbox_id': -1, 'overlap': 0.}
 
         tp = []
         fp = []
+        tot_props = 0
+
         for img_idx in self.proposals:
             # For every image, look at each detection
             # img_props is a pandas DataFrame
             img_props = self.proposals[self.proposals['img_idx'] == img_idx]
             img_gt = self.get_anns(img_idx=img_idx)  # This is a dict of dicts
+            tot_props += len(img_props)
 
             # For all detections in an image, compare them to the ground truths
             for det_idx, det in img_props.iterrows():
-                val = calculate_tpfp(det, img_gt)
+                val, overlap = calculate_tpfp(det, img_gt)
                 if val < 0:
                     fp.append(val)
                 else:
@@ -336,13 +349,15 @@ class OBBAnns:
             if i not in ann_gt_idxs:
                 fn.append(i)
 
+        accuracy = tot_tp / tot_props
         precision = tot_tp / (tot_tp + tot_fp)
         recall = tot_tp / (tot_tp + len(fn))
 
-        return {'precision': precision,
+        return {'accuracy': accuracy,
+                'precision': precision,
                 'recall': recall}
 
-    def _draw_bbox(self, draw, ann, color):
+    def _draw_bbox(self, draw, ann, color, oriented, annotation_set=None):
         """Draws the bounding box onto an image with a given color.
 
         :param ImageDraw.ImageDraw draw: ImageDraw object to draw with.
@@ -350,14 +365,24 @@ class OBBAnns:
             bounding box to draw.
         :param str color: Color to draw the bounding box in as a hex string,
             e.g. '#00ff00'
+        :param bool oriented: Choose between drawing oriented or aligned
+            bounding box.
+        :param Optional[int] annotation_set: Index of the annotation set to be
+            drawn. If None is given, the first one available will be drawn.
         :return: The drawn object.
         :rtype: ImageDraw.ImageDraw
         """
-        cat = self.cat_info[int(ann['cat_id'])]
-        bbox = ann['bbox']
-        # We use a mod to make sure we get a color within the possible
-        # color range
-        draw.polygon(bbox, outline=color)
+        annotation_set = 0 if annotation_set is None else annotation_set
+        cat_id = ann['cat_id']
+        if isinstance(cat_id, list):
+            cat_id = int(cat_id[annotation_set])
+        cat = self.cat_info[cat_id]['name']
+        if oriented:
+            bbox = ann['o_bbox']
+            draw.polygon(bbox, outline=color)
+        else:
+            bbox = ann['a_bbox']
+            draw.rectangle(bbox, outline=color)
 
         # Now draw the label below the bbox
         x0 = min(bbox[::2])
@@ -374,9 +399,9 @@ class OBBAnns:
                   img_idx=None,
                   img_id=None,
                   data_root=None,
-                  img_dir=None,
-                  seg_dir=None,
                   out_dir=None,
+                  annotation_set=None,
+                  oriented=True,
                   show=True):
         """Uses PIL to visualize the ground truth labels of a given image.
 
@@ -389,15 +414,14 @@ class OBBAnns:
         :param Optional[str] data_root: Path to the root data directory. If
             none is given, it is assumed to be the parent directory of the
             ann_file path.
-        :param Optional[str] img_dir: Directory for the image files. For
-            example, if the image files are in a subdirectory
-            '[data_root]/imgs/[file_name]', then the img_dir is 'imgs'.
-        :param Optional[str] seg_dir: Directory for the segmentation files. See
-            img_dir for an example. If none is given, then an overlay of the
-            segmentation will not be generated.
         :param Optional[str] out_dir: Directory to save the visualizations in.
             If a directory is given, then the visualizations produced will also
             be saved.
+        :param Optional[str] annotation_set: The annotation set to be
+            visualized. If None is given, then the first annotation set
+            available will be visualized.
+        :param Optional[bool] oriented: Whether to show aligned or oriented
+            bounding boxes. A value of True means it will show oriented boxes.
         :param bool show: Whether or not to use pillow's show() method to
             visualize the image.
         """
@@ -409,13 +433,17 @@ class OBBAnns:
         img_info, ann_info = [i[0] for i in
                               self.get_img_ann_pair(idxs=img_idx, ids=img_id)]
 
+        if annotation_set is None:
+            annotation_set = 0
+        else:
+            annotation_set = self.annotation_sets.index(annotation_set)
+
         # Get the data_root from the ann_file path if it doesn't exist
         if data_root is None:
             data_root = osp.split(self.ann_file)[0]
 
-        # Calculate the directories that the actual image and segmentations
-        # are in
-        img_dir = data_root if img_dir is None else osp.join(data_root, img_dir)
+        img_dir = osp.join(data_root, 'images')
+        seg_dir = osp.join(data_root, 'segmentation')
 
         # Get the actual image filepath and the segmentation filepath
         img_fp = osp.join(img_dir, img_info['filename'])
@@ -424,45 +452,46 @@ class OBBAnns:
         # Remember: PIL Images are in form (h, w, 3)
         img = Image.open(img_fp)
 
-        if seg_dir is not None:
-            seg_fp = osp.join(
-                data_root,
-                seg_dir,
-                osp.splitext(img_info['filename'])[0] + '_seg.png'
-            )
-            seg = Image.open(seg_fp)
+        seg_fp = osp.join(
+            data_root,
+            seg_dir,
+            osp.splitext(img_info['filename'])[0] + '_seg.png'
+        )
+        seg = Image.open(seg_fp)
 
-            # Here we overlay the segmentation on the original image using the
-            # colorcet colors
-            # First we need to get the new color values from colorcet
-            colors = [ImageColor.getrgb(i) for i in cc.glasbey]
-            colors = np.array(colors).reshape(768,).tolist()
-            colors[0:3] = [0, 0, 0]   # Set background to black
+        # Here we overlay the segmentation on the original image using the
+        # colorcet colors
+        # First we need to get the new color values from colorcet
+        colors = [ImageColor.getrgb(i) for i in cc.glasbey]
+        colors = np.array(colors).reshape(768,).tolist()
+        colors[0:3] = [0, 0, 0]   # Set background to black
 
-            # Then put the palette
-            seg.putpalette(colors)
+        # Then put the palette
+        seg.putpalette(colors)
 
-            # Now the img and the segmentation can be composed together. Black
-            # areas in the segmentation (i.e. background) are ignored
-            seg_array = np.array(seg)
-            mask = np.zeros_like(seg_array)
-            mask[np.where(seg_array == 0)] = 255
-            mask = Image.fromarray(mask, mode='L')
+        # Now the img and the segmentation can be composed together. Black
+        # areas in the segmentation (i.e. background) are ignored
+        seg_array = np.array(seg)
+        mask = np.zeros_like(seg_array)
+        mask[np.where(seg_array == 0)] = 255
+        mask = Image.fromarray(mask, mode='L')
 
-            img = Image.composite(img, seg.convert('RGB'), mask)
+        img = Image.composite(img, seg.convert('RGB'), mask)
         draw = ImageDraw.Draw(img)
 
         # Now draw the gt bounding boxes onto the image
         for ann in ann_info.to_dict('records'):
-            draw = self._draw_bbox(draw, ann, '#00ff00')
+            draw = self._draw_bbox(draw, ann, '#00ff00', oriented, annotation_set)
 
         if self.proposals is not None:
             prop_info = self.get_img_props(idxs=img_idx, ids=img_id)
 
             for prop in prop_info.to_dict('records'):
-                draw = self._draw_bbox(draw, prop, '#ff0000')
+                prop_oriented = len(prop['bbox']) == 8
+                draw = self._draw_bbox(draw, prop, '#ff0000', prop_oriented)
 
         if show:
             img.show()
         if out_dir is not None:
-            img.save(osp.join(out_dir, datetime.now().strftime('%m-%d_%H%M%S')))
+            img.save(osp.join(out_dir, datetime.now().strftime('%m-%d_%H%M%S'))
+                     + '.png')
