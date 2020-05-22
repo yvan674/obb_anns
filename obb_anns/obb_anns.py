@@ -163,7 +163,6 @@ class OBBAnns:
         if bbox_len == 8:
             self.props_oriented = True
 
-
         for prop in props['proposals']:
             prop_img_idx = self.img_idx_lookup[prop["img_id"]]
             props_dict['bbox'].append(prop['bbox'])
@@ -279,7 +278,7 @@ class OBBAnns:
 
         # Proposals are checked by idx, not by id so we need to find their idxs
         if ids is not None:
-            idxs = [self.img_idx_lookup[id] for id in ids]
+            idxs = [self.img_idx_lookup[img_id] for img_id in ids]
 
         selector = self.proposals.img_idx.isin(idxs)
         return self.proposals[selector]
@@ -513,7 +512,8 @@ class OBBAnns:
 
         # Now draw the gt bounding boxes onto the image
         for ann in ann_info.to_dict('records'):
-            draw = self._draw_bbox(draw, ann, '#00ff00', oriented, annotation_set)
+            draw = self._draw_bbox(draw, ann, '#00ff00', oriented,
+                                   annotation_set)
 
         if self.proposals is not None:
             prop_info = self.get_img_props(idxs=img_idx, ids=img_id)

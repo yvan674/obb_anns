@@ -1,14 +1,8 @@
 # Oriented Bounding Box Annotations
 Tools to work with the Oriented Bounding Box Schema.
+This package provides a class `OBBAnns` which allows annotations in the OBB schema to be loaded, visualized, and metrics against proposals to be calculated.
 
-### Why a new schema?
-The aim of this schema is to make it easy to work with oriented bounding boxes while also retaining the ability to do segmentation tasks on the objects.
-Here we try to create tools that make it quick and easy to work with oriented bounding boxes, their corresponding semantic segmentations, and measuring the accuracy, precision, and recall of models trained on this annotation style.
-
-### Design decisions
-We choose to use a JSON file for the annotations as it is already familiar (from the COCO dataset) and is also a much simpler format to parse than an XML file. 
-We also choose to store the segmentation information in a separate PNG file to reduce the size of the annotation file, as well as to make dynamic loading of annotation segmentation simpler, especially in cases where there may be very many instances of objects in a single image.
-Finally, we choose to process predictions from a proposals file instead of from directly taking proposals as a function argument to make it easier to process proposals asynchronously as well as after the fact from previous proposals.
+![Example visualization](media/visualization_example.png)
 
 ## Installation
 1.  Install SWIG.
@@ -188,9 +182,18 @@ o.visualize(img_idx=1, out_dir='path/to/save/dir', show=False)
 ```
 
 ## Dependencies
-- numpy
-- pillow
-- colorcet
-- pandas
+- numpy~=1.18
+- pillow~=7.0
+- colorcet~=1.0
+- pandas~=1.0
 
-This toolkit uses the PolyIOU code found in the [DOTA Devkit](https://github.com/CAPTAIN-WHU/DOTA_devkit).
+This toolkit includes the PolyIOU code found in the [DOTA Devkit](https://github.com/CAPTAIN-WHU/DOTA_devkit).
+
+## Why a new schema?
+The aim of this schema is to make it easy to work with oriented bounding boxes while also retaining the ability to do segmentation tasks on the objects.
+Here we try to create tools that make it quick and easy to work with oriented bounding boxes, their corresponding semantic segmentations, and measuring the accuracy, precision, and recall of models trained on this annotation style.
+
+### Design decisions
+We choose to use a JSON file for the annotations as it is already familiar (from the COCO dataset) and is also a much simpler format to parse than an XML file. 
+We also choose to store the segmentation information in a separate PNG file to reduce the size of the annotation file, as well as to make dynamic loading of annotation segmentation simpler, especially in cases where there may be very many instances of objects in a single image.
+Finally, we choose to process predictions from a proposals file instead of from directly taking proposals as a function argument to make it easier to process proposals asynchronously as well as after the fact from previous proposals.
