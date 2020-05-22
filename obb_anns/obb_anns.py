@@ -48,6 +48,8 @@ class OBBAnns:
 
         self.proposal_file = None
         self.proposals = None
+        self.props_oriented = False
+        self.prop_ann_set_idx = None
         self.dataset_info = None
         self.img_info = None
         self.img_idx_lookup = dict()
@@ -128,29 +130,41 @@ class OBBAnns:
 
         print("done! t={:.2f}s".format(time() - start_time))
 
-    def load_proposals(self, proposals_file):
+    def load_proposals(self, proposal_file):
         """Loads proposals into memory.
 
         This loads the generated proposals into memory so that metrics can be
         calculated on them.
 
-        :param proposals_file: Path to the generated proposals file.
-        :type proposals_file: str
+        :param proposal_file: Path to the generated proposals file.
+        :type proposal_file: str
         """
         assert self.img_info is not None, 'Annotations must be loaded before ' \
                                           'proposals'
+        self.proposal_file = proposal_file
         print('loading proposals...')
         start_time = time()
-        with open(proposals_file, 'r') as p_file:
-            props = json.load(p_file)['proposals']
+        with open(proposal_file, 'r') as p_file:
+            props = json.load(p_file)
 
+        # Get the index of the proposed annotation set so the right cat is
+        # chosen as the GT set.
+        self.prop_ann_set_idx = self.annotation_sets.index(
+            props['annotation_set']
+        )
         props_dict = {
             'bbox': [],
             'cat_id': [],
             'img_idx': []
         }
+        bbox_len = len(props['proposals'][0]['bbox'])
+        assert bbox_len in (4, 8), 'bbox proposal is malformed. \'bbox\' ' \
+                                   'must have a length of 4 or 8.'
+        if bbox_len == 8:
+            self.props_oriented = True
 
-        for prop in props:
+
+        for prop in props['proposals']:
             prop_img_idx = self.img_idx_lookup[prop["img_id"]]
             props_dict['bbox'].append(prop['bbox'])
             props_dict['cat_id'].append(prop['cat_id'])
@@ -291,17 +305,35 @@ class OBBAnns:
                 the true positive bbox.
             :rtype: dict[int, float]
             """
-            same_cat_gt = img_gt[img_gt['cat_id'] == detection['cat_id']]
-            df = pd.DataFrame({
-                'gt': same_cat_gt['bbox'],
-                'det': [detection['bbox'] * len(same_cat_gt)]
-            })
-
-            def calculate_overlap(row):
+            def calculate_oriented_overlap(row):
                 return iou_poly(VectorDouble(row['gt']),
                                 VectorDouble(row['det']))
 
-            overlaps = df.apply(calculate_overlap, 1)
+            def calculate_aligned_overlap(row):
+                a = row['gt']
+                b = row['det']
+                dx = min(a[2] - b[2]) - max(a[0] - b[0])
+                dy = min(a[3] - b[3]) - max(a[1] - b[1])
+                if (dx >= 0) and (dy >= 0):
+                    return dx * dy
+                else:
+                    return 0.
+
+            gt_cat_id = img_gt['cat_id'][self.prop_ann_set_idx]
+            same_cat_gt = img_gt[gt_cat_id == detection['cat_id']]
+            if self.props_oriented:
+                df = pd.DataFrame({
+                    'gt': same_cat_gt['o_bbox'],
+                    'det': [detection['bbox'] * len(same_cat_gt)]
+                })
+                overlaps = df.apply(calculate_oriented_overlap, 1)
+            else:
+                df = pd.DataFrame({
+                    'gt': same_cat_gt['a_bbox'],
+                    'det': [detection['bbox'] * len(same_cat_gt)]
+                })
+                overlaps = df.apply(calculate_aligned_overlap, 1)
+
             max_overlap = overlaps.max()
             if max_overlap >= 0.5:
                 # Means that there's at least one with an overlap. We take the
