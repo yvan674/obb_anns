@@ -2,6 +2,8 @@
 Tools to work with the Oriented Bounding Box Schema.
 This package provides a class `OBBAnns` which allows annotations in the OBB schema to be loaded, visualized, and metrics against proposals to be calculated.
 
+Below, an example of a visualization of the DeepScoresV2 dataset, which uses the OBB schema, can be seen.
+
 ![Example visualization](media/visualization_example.png)
 
 ## Installation
