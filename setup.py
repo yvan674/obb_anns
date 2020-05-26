@@ -54,6 +54,7 @@ class InstallPolyIOU(install):
         print("polyiou extension installed!")
 
 
+@build_with_swig
 class DevelopPolyIOU(develop):
     """Installs the PolyIOU extension in place"""
     def run(self):
