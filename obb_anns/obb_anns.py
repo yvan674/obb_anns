@@ -31,6 +31,7 @@ class OBBAnns:
         Provides the following methods:
         - load_annotations(): Loads annotations to memory.
         - load_proposals(): Loads given proposals to memory.
+        - set_annotation_set_filter(): Applies a filter by annotation set.
         - get_imgs(): Gets desired image information.
         - get_anns(): Gets annotation information for a given image.
         - get_cats(): Gets all cats in the dataset.
@@ -56,6 +57,7 @@ class OBBAnns:
         self.annotation_sets = None
         self.cat_info = None
         self.ann_info = None
+        self.chosen_ann_set = None
 
     def __repr__(self):
         information = "<Oriented Bounding Box Dataset>\n"
@@ -82,11 +84,18 @@ class OBBAnns:
                         or (m is None and n is not None))
         assert only_one_arg, 'Only one type of request can be done at a time'
 
-    def load_annotations(self):
+    def load_annotations(self, annotation_set_filter=None):
         """Loads ann_info into memory.
 
         This is not done in the init in case a dataset is just to be initialized
         without actually loading it into memory yet.
+
+        :param annotation_set_filter: Set a filter so that future calls to
+            methods which get annotations only returns a specific annotation
+            sets. If None is given, then the all annotation sets are returned.
+            Annotation sets can also be chosen each time a method which gets
+            annotations is called.
+        :type annotation_set_filter: str
         """
         print('loading ann_info...')
 
@@ -97,6 +106,15 @@ class OBBAnns:
 
         self.dataset_info = data['info']
         self.annotation_sets = data['annotation_sets']
+
+        # Sets annotation sets and makes sure it exists
+        if annotation_set_filter is not None:
+            assert annotation_set_filter in self.annotation_sets, \
+                    f"The chosen annotation_set_filter " \
+                    f"{annotation_set_filter} is not a in the available " \
+                    f"annotations sets."
+            self.chosen_ann_set = annotation_set_filter
+
 
         self.cat_info = {int(k): v for k, v in data['categories'].items()}
 
@@ -113,7 +131,7 @@ class OBBAnns:
             ann_id.append(int(k))
             anns['a_bbox'].append(v['a_bbox'])
             anns['o_bbox'].append(v['o_bbox'])
-            anns['cat_id'].append([int(i) for i in v['cat_id']])
+            anns['cat_id'].append(v['cat_id'])
             anns['area'].append(v['area'])
             anns['img_id'].append(v['img_id'])
             anns['comments'].append(v['comments'])
@@ -173,6 +191,14 @@ class OBBAnns:
 
         print('done! t={:.2f}s'.format(time() - start_time))
 
+    def set_annotation_set_filter(self, annotation_set_filter):
+        """Sets the annotation set filter for future get calls.
+
+        :param annotation_set_filter: The annotation set to filter by.
+        :type annotation_set_filter: str
+        """
+        self.chosen_ann_set = annotation_set_filter
+
     def get_imgs(self, idxs=None, ids=None):
         """Gets the information of imgs at the given indices/ids.
 
@@ -180,7 +206,7 @@ class OBBAnns:
         idxs AND the given ids.
 
         :param idxs: The indices of the desired images.
-        :param ids: The ids of the desired images
+        :param ids: The ids of the desired images.
         :type idxs: list or tuple
         :type ids: list or tuple
         :returns: The information of the requested images as a list. Filenames
@@ -199,13 +225,16 @@ class OBBAnns:
             assert isinstance(ids, list), 'Given ids must be a list or tuple'
             return [self.img_info[self.img_idx_lookup[i]] for i in ids]
 
-    def get_anns(self, img_idx=None, img_id=None):
+    def get_anns(self, img_idx=None, img_id=None, ann_set_filter=None):
         """Gets the annotations for a given image by idx or img_id.
 
         :param img_idx: The index of the image.
         :param img_id: The img_id of the image.
+        :param ann_set_filter: Filter by annotation set. If None, uses the
+            filter chosen in the method set_annotation_filter().
         :type img_idx: int
         :type img_id: int
+        :type ann_set_filter: str
         :returns: Annotation information (dict) for that image with the key
             being the annotation ID and the value being the annotation
             information.
@@ -214,10 +243,11 @@ class OBBAnns:
         self._xor_args(img_idx, img_id)
 
         if img_idx is not None:
-            return self.get_ann_ids(self.img_info[img_idx]['ann_ids'])
+            return self.get_ann_ids(self.img_info[img_idx]['ann_ids'],
+                                    ann_set_filter)
         else:
             ann_ids = self.img_info[self.img_idx_lookup[img_id]]['ann_ids']
-            return self.get_ann_ids(ann_ids)
+            return self.get_ann_ids(ann_ids, ann_set_filter)
 
     def get_cats(self):
         """Just returns the self.cat_info dictionary.
@@ -227,7 +257,7 @@ class OBBAnns:
         """
         return self.cat_info
 
-    def get_ann_ids(self, ann_ids):
+    def get_ann_ids(self, ann_ids, ann_set_filter=None):
         """Gets the annotation information for a given list of ann_ids.
 
         :param ann_ids: The annotation ids that are desired.
@@ -237,19 +267,37 @@ class OBBAnns:
         """
         assert isinstance(ann_ids, list), 'Given ann_ids must be a list or ' \
                                           'tuple'
-        ann_ids = [int(i) for i in ann_ids]
-        return self.ann_info.loc[ann_ids, :]
 
-    def get_img_ann_pair(self, idxs=None, ids=None):
+
+        ann_ids = [int(i) for i in ann_ids]
+        selected = self.ann_info.loc[ann_ids]
+
+        # Get annotation set index and return only the specific category id
+        if ann_set_filter is None:
+            ann_set_filter = self.chosen_ann_set
+        ann_set_idx = self.annotation_sets.index(ann_set_filter)
+        selected['cat_id'] = selected['cat_id'].map(
+            lambda x: float(x[ann_set_idx])
+        )
+        selected = selected[selected['cat_id'].notnull()]
+        selected['cat_id'] = selected['cat_id'].map(lambda x: int(x))
+
+        return selected
+
+
+    def get_img_ann_pair(self, idxs=None, ids=None, ann_set_filter=None):
         """Gets the information and annotations at the given indices/ids.
 
         This only works with either idxs or ids, i.e. cannot get both the given
         idxs AND the given ids.
 
         :param idxs: The indices of the desired images.
-        :param ids: The ids of the desired images
+        :param ids: The ids of the desired images.
+        :param ann_set_filter: Filter by annotation set. If None, uses the
+            filter chosen in the method set_annotation_filter().
         :type idxs: list or tuple
         :type ids: list or tuple
+        :type ann_set_filter: list or str
         :returns: The information of the requested images as a tuple (list of
             image info, corresponding annotations)
         :rtype: tuple
@@ -258,7 +306,8 @@ class OBBAnns:
         self._xor_args(idxs, ids)
 
         imgs = self.get_imgs(idxs, ids)
-        anns = [self.get_ann_ids(img['ann_ids']) for img in imgs]
+        anns = [self.get_ann_ids(img['ann_ids'], ann_set_filter)
+                for img in imgs]
 
         return imgs, anns
 
