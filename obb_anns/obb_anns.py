@@ -58,6 +58,8 @@ class OBBAnns:
         self.cat_info = None
         self.ann_info = None
         self.chosen_ann_set = None
+        self.classes_blacklist = []
+        self.classes_blacklist_id = []
 
     def __repr__(self):
         information = "<Oriented Bounding Box Dataset>\n"
@@ -114,7 +116,8 @@ class OBBAnns:
                     f"{annotation_set_filter} is not a in the available " \
                     f"annotations sets."
             self.chosen_ann_set = annotation_set_filter
-
+        else:
+            self.chosen_ann_set = self.annotation_sets
 
         self.cat_info = {int(k): v for k, v in data['categories'].items()}
 
@@ -199,6 +202,15 @@ class OBBAnns:
         """
         self.chosen_ann_set = annotation_set_filter
 
+    def set_class_blacklist(self, blacklist):
+        """Sets the annotation set filter for future get calls.
+
+        :param blacklist: a list of classnames to be ignored
+        :type blacklist: list
+        """
+        self.classes_blacklist = blacklist
+        self.classes_blacklist_id = [key for (key, value) in self.cat_info.items() if value['name'] in self.classes_blacklist]
+
     def get_imgs(self, idxs=None, ids=None):
         """Gets the information of imgs at the given indices/ids.
 
@@ -255,8 +267,9 @@ class OBBAnns:
         :returns The category information of the currently loaded dataset.
         :rtype: dict
         """
-        return self.cat_info
-
+        return {key: value for (key, value) in self.cat_info.items() 
+         if value['annotation_set'] in self.chosen_ann_set and value['name'] not in self.classes_blacklist}
+        
     def get_ann_ids(self, ann_ids, ann_set_filter=None):
         """Gets the annotation information for a given list of ann_ids.
 
@@ -275,12 +288,12 @@ class OBBAnns:
         # Get annotation set index and return only the specific category id
         if ann_set_filter is None:
             ann_set_filter = self.chosen_ann_set
-        ann_set_idx = self.annotation_sets.index(ann_set_filter)
-        selected['cat_id'] = selected['cat_id'].map(
-            lambda x: float(x[ann_set_idx])
-        )
-        selected = selected[selected['cat_id'].notnull()]
-        selected['cat_id'] = selected['cat_id'].map(lambda x: int(x))
+        ann_set_idx = [self.annotation_sets.index(ann_set) for ann_set in ann_set_filter]
+
+        def filter_ids(record):
+            return [int(record[id]) for id in ann_set_idx if int(record[id]) not in self.classes_blacklist_id]
+        selected['cat_id'] = selected['cat_id'].map(filter_ids)
+        selected = selected[selected['cat_id'].map(lambda x:len(x))>0]
 
         return selected
 
