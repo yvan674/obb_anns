@@ -274,13 +274,15 @@ class OBBAnns:
         """Gets the annotation information for a given list of ann_ids.
 
         :param ann_ids: The annotation ids that are desired.
+        :param ann_set_filter: Filter by annotation set. If None, uses the
+            filter chosen in the method set_annotation_filter().
         :type ann_ids: list[str] or list[int]
+        :type ann_set_filter: str
         :returns: The annotation information requested.
         :rtype: pd.DataFrame
         """
         assert isinstance(ann_ids, list), 'Given ann_ids must be a list or ' \
                                           'tuple'
-
 
         ann_ids = [int(i) for i in ann_ids]
         selected = self.ann_info.loc[ann_ids]
@@ -291,12 +293,13 @@ class OBBAnns:
         ann_set_idx = [self.annotation_sets.index(ann_set) for ann_set in ann_set_filter]
 
         def filter_ids(record):
-            return [int(record[id]) for id in ann_set_idx if int(record[id]) not in self.classes_blacklist_id]
+            return [int(record[id]) 
+                    for id in ann_set_idx 
+                    if int(record[id]) not in self.classes_blacklist_id]
         selected['cat_id'] = selected['cat_id'].map(filter_ids)
         selected = selected[selected['cat_id'].map(lambda x:len(x))>0]
 
         return selected
-
 
     def get_img_ann_pair(self, idxs=None, ids=None, ann_set_filter=None):
         """Gets the information and annotations at the given indices/ids.
