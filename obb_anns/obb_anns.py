@@ -186,7 +186,7 @@ class OBBAnns:
 
         for prop in props['proposals']:
             prop_img_idx = self.img_idx_lookup[prop["img_id"]]
-            props_dict['bbox'].append(prop['bbox'])
+            props_dict['bbox'].append(np.asarray(prop['bbox'], dtype=np.float32))
             props_dict['cat_id'].append(prop['cat_id'])
             props_dict['img_idx'].append(prop_img_idx)
 
@@ -371,35 +371,49 @@ class OBBAnns:
                                 VectorDouble(row['det']))
 
             def calculate_aligned_overlap(row):
+                #row = row[1]
                 a = row['gt']
                 b = row['det']
-                dx = min(a[2] - b[2]) - max(a[0] - b[0])
-                dy = min(a[3] - b[3]) - max(a[1] - b[1])
-                if (dx >= 0) and (dy >= 0):
-                    return dx * dy
+                dx_int = min([a[2],b[2]]) - max([a[0], b[0]])
+                dy_int = min([a[3],b[3]]) - max([a[1],b[1]])
+
+                dx_ov = max([a[2],b[2]]) - min([a[0], b[0]])
+                dy_ov = max([a[3],b[3]]) - min([a[1],b[1]])
+
+                if (dx_int >= 0) and (dy_int >= 0):
+                    return (dx_int * dy_int)/(dx_ov*dy_ov)
                 else:
                     return 0.
 
-            gt_cat_id = img_gt['cat_id'][self.prop_ann_set_idx]
+            # expect to only have one annotation set at this point
+            gt_cat_id = img_gt['cat_id'].map(lambda x:x[0])
             same_cat_gt = img_gt[gt_cat_id == detection['cat_id']]
-            if self.props_oriented:
-                df = pd.DataFrame({
-                    'gt': same_cat_gt['o_bbox'],
-                    'det': [detection['bbox'] * len(same_cat_gt)]
-                })
-                overlaps = df.apply(calculate_oriented_overlap, 1)
-            else:
-                df = pd.DataFrame({
-                    'gt': same_cat_gt['a_bbox'],
-                    'det': [detection['bbox'] * len(same_cat_gt)]
-                })
-                overlaps = df.apply(calculate_aligned_overlap, 1)
+            if len(same_cat_gt) > 0: #
+                if self.props_oriented:
+                    df = pd.DataFrame({
+                        'gt': same_cat_gt['o_bbox'],
+                        'det': [detection['bbox'] * len(same_cat_gt)]
+                    })
+                    overlaps = df.apply(calculate_oriented_overlap, 1)
+                else:
+                    df = pd.DataFrame({
+                        'gt': same_cat_gt['a_bbox'],
+                        'det': [detection['bbox'] ]* len(same_cat_gt)
+                    })
+                    # overlaps = np.zeros(df.shape[0])
+                    # for id, row in enumerate(df.iterrows()):
+                    #     calculate_aligned_overlap(row)
+                    #     print(row)
+                    overlaps = df.apply(calculate_aligned_overlap, 1)
 
-            max_overlap = overlaps.max()
-            if max_overlap >= 0.5:
-                # Means that there's at least one with an overlap. We take the
-                # object with highest overlap.
-                return {'bbox_id': overlaps.idxmax(), 'overlap': max_overlap}
+
+                max_overlap = overlaps.max()
+                if max_overlap >= 0.5:
+                    # Means that there's at least one with an overlap. We take the
+                    # object with highest overlap.
+                    return {'bbox_id': overlaps.idxmax(), 'overlap': max_overlap}
+                else:
+                    return {'bbox_id': -1, 'overlap': 0.}
             else:
                 return {'bbox_id': -1, 'overlap': 0.}
 
@@ -407,7 +421,7 @@ class OBBAnns:
         fp = []
         tot_props = 0
 
-        for img_idx in self.proposals:
+        for img_idx in np.unique(self.proposals['img_idx']):
             # For every image, look at each detection
             # img_props is a pandas DataFrame
             img_props = self.proposals[self.proposals['img_idx'] == img_idx]
@@ -416,7 +430,8 @@ class OBBAnns:
 
             # For all detections in an image, compare them to the ground truths
             for det_idx, det in img_props.iterrows():
-                val, overlap = calculate_tpfp(det, img_gt)
+                tpfp = calculate_tpfp(det, img_gt)
+                val, overlap = tpfp['bbox_id'], tpfp['overlap']
                 if val < 0:
                     fp.append(val)
                 else:
@@ -444,8 +459,8 @@ class OBBAnns:
 
         accuracy = tot_tp / tot_props
         precision = tot_tp / (tot_tp + tot_fp)
-        recall = tot_tp / (tot_tp + len(fn))
-
+        #recall = tot_tp / (tot_tp + len(fn)) TODO: fix recall
+        recall = 0
         return {'accuracy': accuracy,
                 'precision': precision,
                 'recall': recall}
