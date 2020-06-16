@@ -564,7 +564,6 @@ class OBBAnns:
         img = Image.open(img_fp)
 
         seg_fp = osp.join(
-            data_root,
             seg_dir,
             osp.splitext(img_info['filename'])[0] + '_seg.png'
         )
