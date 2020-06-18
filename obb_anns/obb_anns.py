@@ -423,8 +423,10 @@ class OBBAnns:
         tp = []
         fp = []
         tot_props = 0
-
-        for img_idx in np.unique(self.proposals['img_idx']):
+        unique_images = np.unique(self.proposals['img_idx'])
+        import mmcv
+        prog_bar = mmcv.ProgressBar(len(unique_images))
+        for img_idx in unique_images:
             # For every image, look at each detection
             # img_props is a pandas DataFrame
             img_props = self.proposals[self.proposals['img_idx'] == img_idx]
@@ -439,6 +441,7 @@ class OBBAnns:
                     fp.append(val)
                 else:
                     tp.append(val)
+            prog_bar.update()
 
         # Count number of False Positive (i.e. calculate_tpfp returned -1)
         tot_fp = len(fp)
