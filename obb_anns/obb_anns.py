@@ -348,7 +348,7 @@ class OBBAnns:
         selector = self.proposals.img_idx.isin(idxs)
         return self.proposals[selector]
 
-    def calculate_metrics(self):
+    def calculate_metrics(self, iou_thrs=[0.5, 0.55], classwise=False, overlaps_savefile = None, average_thrs = True):
         """Calculates proposed bounding box validation metrics.
 
         Calculates accuracy as total true positives / total detections
@@ -411,19 +411,18 @@ class OBBAnns:
 
 
                 max_overlap = overlaps.max()
-                if max_overlap >= 0.5:
-                    # Means that there's at least one with an overlap. We take the
-                    # object with highest overlap.
-                    return {'bbox_id': overlaps.idxmax(), 'overlap': max_overlap}
-                else:
-                    return {'bbox_id': -1, 'overlap': 0.}
+
+                # Means that there's at least one with an overlap. We take the
+                # object with highest overlap.
+                return {'bbox_id': overlaps.idxmax(), 'overlap': max_overlap}
+
             else:
                 return {'bbox_id': -1, 'overlap': 0.}
 
-        tp = []
-        fp = []
         tot_props = 0
+        overlaps = []
         unique_images = np.unique(self.proposals['img_idx'])
+        tot_props = self.proposals['cat_id'].value_counts()
         import mmcv
         prog_bar = mmcv.ProgressBar(len(unique_images))
         for img_idx in unique_images:
@@ -431,45 +430,89 @@ class OBBAnns:
             # img_props is a pandas DataFrame
             img_props = self.proposals[self.proposals['img_idx'] == img_idx]
             img_gt = self.get_anns(img_idx=img_idx)  # This is a dict of dicts
-            tot_props += len(img_props)
 
             # For all detections in an image, compare them to the ground truths
             for det_idx, det in img_props.iterrows():
                 tpfp = calculate_tpfp(det, img_gt)
                 val, overlap = tpfp['bbox_id'], tpfp['overlap']
-                if val < 0:
-                    fp.append(val)
-                else:
-                    tp.append(val)
+                overlaps.append([val, overlap, det['cat_id']])
+
             prog_bar.update()
 
-        # Count number of False Positive (i.e. calculate_tpfp returned -1)
-        tot_fp = len(fp)
+        overlaps = np.array(overlaps)
+        # if overlaps_savefile is not None:
+        #     with open(overlaps_savefile+'.npy', 'wb') as f:
+        #         np.save(f, overlaps)
+        #overlaps = np.load("overlaps.npy")
 
-        # Count number of ground truths with a corresponding detection
-        # (True Positive)
-        tp_set = set(tp)
-        tot_tp = len(tp_set)
+        results_dict = {}
+        if classwise:
+            for class_idx in np.unique(overlaps[:, 2]):
+                results_dict[class_idx] = self._evaluate_overlaps(overlaps[overlaps[:,2]==class_idx], tot_props, iou_thrs, by_class=class_idx)
+        else:
+            results_dict["average"] = self._evaluate_overlaps(overlaps, tot_props, iou_thrs)
 
-        # Count number of ground truths with multiple corresponding
-        # detections (False Positive)
-        tot_fp += len(tp) - len(tp_set)
+        if average_thrs:
+            for cls_key, tresh_dict in results_dict.items():
+                averaged_dict = {'accuracy': 0,
+                                 'precision': 0,
+                                 'recall': 0}
+                for _, eval_dict in tresh_dict.items():
+                    for key in averaged_dict.keys():
+                        averaged_dict[key] += eval_dict[key]
+                for key in averaged_dict.keys():
+                    averaged_dict[key] = averaged_dict[key]/len(tresh_dict)
+                results_dict[cls_key] = averaged_dict
+        return results_dict
 
-        # Count number of ground truths without a corresponding detection
-        # (False Negative)
-        ann_gt_idxs = set([index for index, _ in self.ann_info.iterrows()])
-        fn = []
-        for i in list(tp_set):
-            if i not in ann_gt_idxs:
-                fn.append(i)
+    def _evaluate_overlaps(self, overlaps,tot_props, iou_thrs, by_class=None):
+        overlaps_dict = {}
+        for iou_thr in iou_thrs:
 
-        accuracy = tot_tp / tot_props
-        precision = tot_tp / (tot_tp + tot_fp)
-        #recall = tot_tp / (tot_tp + len(fn)) TODO: fix recall
-        recall = 0
-        return {'accuracy': accuracy,
-                'precision': precision,
-                'recall': recall}
+            tp = overlaps[overlaps[:,1]>= iou_thr]
+            fp = overlaps[overlaps[:,1] < iou_thr]
+
+            # Count number of False Positive (i.e. calculate_tpfp returned -1)
+            tot_fp = len(fp)
+
+            # Count number of ground truths with a corresponding detection
+            # (True Positive)
+            unique_indexes = np.unique(tp[:, 0], return_index=True)[1]
+            tp_set = tp[unique_indexes]
+            tot_tp = len(tp_set)
+
+            # Count number of ground truths with multiple corresponding
+            # detections (False Positive)
+            tot_fp += len(tp) - len(tp_set)
+
+            # Count number of ground truths without a corresponding detection
+            # (False Negative)
+            if by_class is not None:
+                #ann_gt_idxs = set([index for index, row in self.ann_info.iterrows() if int(row['cat_id'][0]) == by_class])
+                ann_gt_idxs = list(self.ann_info[self.ann_info['cat_id'].map(lambda x: int(x[0])) == by_class].index)
+            else:
+                #ann_gt_idxs = set([index for index, row in self.ann_info.iterrows()])
+                ann_gt_idxs = list(self.ann_info.index)
+            fn = []
+            for i in list(tp_set[:,0]):
+                if i not in ann_gt_idxs:
+                    fn.append(i)
+            if by_class is not None:
+                accuracy = tot_tp / tot_props[by_class]
+            else:
+                accuracy = tot_tp / tot_props.sum()
+
+            precision = tot_tp / (tot_tp + tot_fp)
+            if tot_tp == 0: # avoid division by zero
+                recall=0
+            else:
+                recall = tot_tp / (tot_tp + len(fn))
+
+            overlaps_dict[iou_thr] =    {'accuracy': accuracy,
+                                        'precision': precision,
+                                        'recall': recall}
+        return overlaps_dict
+
 
     def _draw_bbox(self, draw, ann, color, oriented, annotation_set=None):
         """Draws the bounding box onto an image with a given color.
