@@ -11,6 +11,8 @@ Created on:
 import json
 from time import time
 from datetime import datetime
+from typing import List
+
 import numpy as np
 import os.path as osp
 from PIL import Image, ImageColor, ImageDraw, ImageFont
@@ -57,7 +59,7 @@ class OBBAnns:
         self.annotation_sets = None
         self.cat_info = None
         self.ann_info = None
-        self.chosen_ann_set = None
+        self.chosen_ann_set = None  # type: List[str]
         self.classes_blacklist = []
         self.classes_blacklist_id = []
 
@@ -194,7 +196,7 @@ class OBBAnns:
 
         print('done! t={:.2f}s'.format(time() - start_time))
 
-    def set_annotation_set_filter(self, annotation_set_filter):
+    def set_annotation_set_filter(self, annotation_set_filter: List[str]):
         """Sets the annotation set filter for future get calls.
 
         :param annotation_set_filter: The annotation set to filter by.
@@ -549,7 +551,6 @@ class OBBAnns:
         img = Image.open(img_fp)
 
         seg_fp = osp.join(
-            data_root,
             seg_dir,
             osp.splitext(img_info['filename'])[0] + '_seg.png'
         )

@@ -29,7 +29,7 @@ if __name__ == '__main__':
 
     a = OBBAnns(join(args.ROOT, args.ANNS))
     a.load_annotations()
-    a.set_annotation_set_filter('deepscores')
+    a.set_annotation_set_filter(['deepscores'])
     if args.PROPOSAL:
         a.load_proposals(join(args.ROOT, args.PROPOSAL))
     for i in range(len(a)):
