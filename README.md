@@ -14,6 +14,8 @@ Below, an example of a visualization of the DeepScoresV2 dataset, which uses the
     ```
     or by downloading the windows executable at [swig.org](http://www.swig.org/download.html)
     
+    On Mac, SWIG can be install with [Homebrew](https://brew.sh/) via `brew install swig`.
+
     If installing using the windows executable, then the path to the SWIG executable must be added to the `Path` variable.
 
 2.  Install the obb_anns module.
