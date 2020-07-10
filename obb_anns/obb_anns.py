@@ -284,7 +284,7 @@ class OBBAnns:
         :param ann_set_filter: Filter by annotation set. If None, uses the
             filter chosen in the method set_annotation_filter().
         :type ann_ids: list[str] or list[int]
-        :type ann_set_filter: str
+        :type ann_set_filter: list or str
         :returns: The annotation information requested.
         :rtype: pd.DataFrame
         """
@@ -297,6 +297,8 @@ class OBBAnns:
         # Get annotation set index and return only the specific category id
         if ann_set_filter is None:
             ann_set_filter = self.chosen_ann_set
+        elif isinstance(ann_set_filter, str):
+            ann_set_filter = [ann_set_filter]
         ann_set_idx = [self.annotation_sets.index(ann_set)
                        for ann_set in ann_set_filter]
 
@@ -613,13 +615,14 @@ class OBBAnns:
 
         if annotation_set is None:
             annotation_set = 0
+            self.chosen_ann_set = self.chosen_ann_set[0]
         else:
             annotation_set = self.annotation_sets.index(annotation_set)
+            self.chosen_ann_set = self.chosen_ann_set[annotation_set]
 
         img_info, ann_info = [i[0] for i in
                               self.get_img_ann_pair(
-                                  idxs=img_idx, ids=img_id,
-                                  ann_set_filter=annotation_set)]
+                                  idxs=img_idx, ids=img_id)]
 
         # Get the data_root from the ann_file path if it doesn't exist
         if data_root is None:
