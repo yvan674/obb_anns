@@ -115,9 +115,9 @@ class OBBAnns:
         # Sets annotation sets and makes sure it exists
         if annotation_set_filter is not None:
             assert annotation_set_filter in self.annotation_sets, \
-                    f"The chosen annotation_set_filter " \
-                    f"{annotation_set_filter} is not a in the available " \
-                    f"annotations sets."
+                f"The chosen annotation_set_filter " \
+                f"{annotation_set_filter} is not a in the available " \
+                f"annotations sets."
             self.chosen_ann_set = annotation_set_filter
         else:
             self.chosen_ann_set = self.annotation_sets
@@ -276,7 +276,7 @@ class OBBAnns:
         return {key: value for (key, value) in self.cat_info.items()
                 if value['annotation_set'] in self.chosen_ann_set
                 and value['name'] not in self.classes_blacklist}
-        
+
     def get_ann_ids(self, ann_ids, ann_set_filter=None):
         """Gets the annotation information for a given list of ann_ids.
 
@@ -304,6 +304,7 @@ class OBBAnns:
             return [int(record[idx])
                     for idx in ann_set_idx
                     if int(record[idx]) not in self.classes_blacklist_id]
+
         selected['cat_id'] = selected['cat_id'].map(filter_ids)
         selected = selected[selected['cat_id'].map(lambda x: len(x)) > 0]
 
@@ -376,6 +377,7 @@ class OBBAnns:
         :returns A dictionary of calculated metric values.
         :rtype: dict
         """
+
         def calculate_tpfp(detection, img_gt):
             """Calculates whether a detection is a true or false positive.
 
@@ -387,6 +389,7 @@ class OBBAnns:
                 'overlap'.
             :rtype: dict
             """
+
             def calculate_oriented_overlap(row):
                 return iou_poly(VectorDouble(row['gt']),
                                 VectorDouble(row['det']))
@@ -402,7 +405,7 @@ class OBBAnns:
                 dy_ov = max([a[3], b[3]]) - min([a[1], b[1]])
 
                 if (dx_int >= 0) and (dy_int >= 0):
-                    return (dx_int * dy_int)/(dx_ov*dy_ov)
+                    return (dx_int * dy_int) / (dx_ov * dy_ov)
                 else:
                     return 0.
 
@@ -481,7 +484,7 @@ class OBBAnns:
                     for key in averaged_dict.keys():
                         averaged_dict[key] += eval_dict[key]
                 for key in averaged_dict.keys():
-                    averaged_dict[key] = averaged_dict[key]/len(tresh_dict)
+                    averaged_dict[key] = averaged_dict[key] / len(tresh_dict)
                 results_dict[cls_key] = averaged_dict
         return results_dict
 
@@ -607,13 +610,16 @@ class OBBAnns:
         # tuple that's why we use list comprehension
         img_idx = [img_idx] if img_idx is not None else None
         img_id = [img_id] if img_id is not None else None
-        img_info, ann_info = [i[0] for i in
-                              self.get_img_ann_pair(idxs=img_idx, ids=img_id)]
 
         if annotation_set is None:
             annotation_set = 0
         else:
             annotation_set = self.annotation_sets.index(annotation_set)
+
+        img_info, ann_info = [i[0] for i in
+                              self.get_img_ann_pair(
+                                  idxs=img_idx, ids=img_id,
+                                  ann_set_filter=annotation_set)]
 
         # Get the data_root from the ann_file path if it doesn't exist
         if data_root is None:
@@ -639,8 +645,8 @@ class OBBAnns:
         # colorcet colors
         # First we need to get the new color values from colorcet
         colors = [ImageColor.getrgb(i) for i in cc.glasbey]
-        colors = np.array(colors).reshape(768,).tolist()
-        colors[0:3] = [0, 0, 0]   # Set background to black
+        colors = np.array(colors).reshape(768, ).tolist()
+        colors[0:3] = [0, 0, 0]  # Set background to black
 
         # Then put the palette
         seg.putpalette(colors)
