@@ -77,7 +77,7 @@ class OBBAnns:
             information += f"\nProposal file: {self.proposal_file}"
             information += f"\nNum proposals: {len(self.proposals)}>"
         else:
-            information += "No proposals loaded."
+            information += "\nNo proposals loaded."
         return information
 
     def __len__(self):
