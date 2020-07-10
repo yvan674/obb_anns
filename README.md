@@ -178,7 +178,6 @@ o = OBBAnns('path/to/file.json')
 o.load_annotations()
 
 # Visualize immediately
-from obb_anns import OBBAnns
 o.visualize(img_idx=1, show=True)
 
 # Or saved to file
