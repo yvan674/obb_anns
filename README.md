@@ -178,7 +178,6 @@ o = OBBAnns('path/to/file.json')
 o.load_annotations()
 
 # Visualize immediately
-from obb_anns import OBBAnns
 o.visualize(img_idx=1, show=True)
 
 # Or saved to file
@@ -201,3 +200,15 @@ Here we try to create tools that make it quick and easy to work with oriented bo
 We choose to use a JSON file for the annotations as it is already familiar (from the COCO dataset) and is also a much simpler format to parse than an XML file. 
 We also choose to store the segmentation information in a separate PNG file to reduce the size of the annotation file, as well as to make dynamic loading of annotation segmentation simpler, especially in cases where there may be very many instances of objects in a single image.
 Finally, we choose to process predictions from a proposals file instead of from directly taking proposals as a function argument to make it easier to process proposals asynchronously as well as after the fact from previous proposals.
+
+## Known Issues
+### ImportError with PolyIOU
+You may encounter an error such as
+```plain
+ImportError: attempted relative import with no known parent package
+```
+This is due to an issue with the way obb_anns currently handles installation.
+The current workaround is to simply start python from inside the `obb_anns` directory or to add the `obb_anns` directory to the `PYTHONPATH` environment variable.
+Any contribution to this issue would be appreciated.
+
+This occurs 
