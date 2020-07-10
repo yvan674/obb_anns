@@ -297,7 +297,7 @@ class OBBAnns:
         # Get annotation set index and return only the specific category id
         if ann_set_filter is None:
             ann_set_filter = self.chosen_ann_set
-        elif isinstance(ann_set_filter, str):
+        if isinstance(ann_set_filter, str):
             ann_set_filter = [ann_set_filter]
         ann_set_idx = [self.annotation_sets.index(ann_set)
                        for ann_set in ann_set_filter]
