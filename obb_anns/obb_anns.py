@@ -615,7 +615,7 @@ class OBBAnns:
 
         if annotation_set is None:
             annotation_set = 0
-            self.chosen_ann_set = self.chosen_ann_set[0]
+            self.chosen_ann_set = self.annotation_sets[0]
         else:
             annotation_set = self.annotation_sets.index(annotation_set)
             self.chosen_ann_set = self.chosen_ann_set[annotation_set]
