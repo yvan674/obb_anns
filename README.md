@@ -210,5 +210,3 @@ ImportError: attempted relative import with no known parent package
 This is due to an issue with the way obb_anns currently handles installation.
 The current workaround is to simply start python from inside the `obb_anns` directory or to add the `obb_anns` directory to the `PYTHONPATH` environment variable.
 Any contribution to this issue would be appreciated.
-
-This occurs 
