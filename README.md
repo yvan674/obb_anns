@@ -184,6 +184,12 @@ o.visualize(img_idx=1, show=True)
 o.visualize(img_idx=1, out_dir='path/to/save/dir', show=False)
 ```
 
+This will result in a visualization like the one shown below.
+![Example class visualization](media/class_seg.png)
+
+Using the optional argument `instance=True`, as in `o.visualize(img_idx=1, instance=True)` will result in a visualization of the instance segmentation like the one shown below
+![Example instance visualization](media/instance_seg.png)
+
 ## Dependencies
 - numpy~=1.18
 - pillow~=7.0

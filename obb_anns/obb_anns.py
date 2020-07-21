@@ -12,6 +12,7 @@ import json
 from time import time
 from datetime import datetime
 from typing import List
+import re
 
 import numpy as np
 import os.path as osp
@@ -19,7 +20,12 @@ from PIL import Image, ImageColor, ImageDraw, ImageFont
 import colorcet as cc
 import pandas as pd
 from tqdm import tqdm
-from .polyiou import iou_poly, VectorDouble
+try:
+    from .polyiou import iou_poly, VectorDouble
+except ModuleNotFoundError:
+    import warnings
+    warnings.warn('polyiou was not found. Running with no support for metric '
+                  'calculation.')
 
 
 class OBBAnns:
@@ -539,7 +545,8 @@ class OBBAnns:
                                       'recall': recall}
         return overlaps_dict
 
-    def _draw_bbox(self, draw, ann, color, oriented, annotation_set=None):
+    def _draw_bbox(self, draw, ann, color, oriented, annotation_set=None,
+                   instances=False):
         """Draws the bounding box onto an image with a given color.
 
         :param ImageDraw.ImageDraw draw: ImageDraw object to draw with.
@@ -551,6 +558,8 @@ class OBBAnns:
             bounding box.
         :param Optional[int] annotation_set: Index of the annotation set to be
             drawn. If None is given, the first one available will be drawn.
+        :param Optional[bool] instances: Show instance in label or class in
+            label. If True, shows the instance numerical value.
         :return: The drawn object.
         :rtype: ImageDraw.ImageDraw
         """
@@ -558,7 +567,17 @@ class OBBAnns:
         cat_id = ann['cat_id']
         if isinstance(cat_id, list):
             cat_id = int(cat_id[annotation_set])
-        cat = self.cat_info[cat_id]['name']
+
+        if instances:
+            comment = ann['comments']
+            # Parse comment string to find the instance value using regex
+            match = re.search(r'(?<=instance:)#......', comment)
+            if match:
+                label = str(int(match[0].lstrip('#'), 16))
+            else:
+                label = ' '
+        else:
+            label = self.cat_info[cat_id]['name']
         if oriented:
             bbox = ann['o_bbox']
             draw.polygon(bbox, outline=color)
@@ -570,11 +589,11 @@ class OBBAnns:
         x0 = min(bbox[::2])
         y0 = max(bbox[1::2])
 
-        x1, y1 = ImageFont.load_default().getsize(cat)
+        x1, y1 = ImageFont.load_default().getsize(label)
         x1 += x0 + 4
         y1 += y0 + 4
         draw.rectangle((x0, y0, x1, y1), fill='#303030')
-        draw.text((x0 + 2, y0 + 2), cat, '#ffffff')
+        draw.text((x0 + 2, y0 + 2), label, '#ffffff')
         return draw
 
     def visualize(self,
@@ -584,6 +603,7 @@ class OBBAnns:
                   out_dir=None,
                   annotation_set=None,
                   oriented=True,
+                  instances=False,
                   show=True):
         """Uses PIL to visualize the ground truth labels of a given image.
 
@@ -606,6 +626,9 @@ class OBBAnns:
             bounding boxes. A value of True means it will show oriented boxes.
         :param bool show: Whether or not to use pillow's show() method to
             visualize the image.
+        :param bool instances: Choose whether to show classes or instances. If
+            False, then shows classes. Else, shows instances as the labels on
+            bounding boxes.
         """
         # Since we can only visualize a single image at a time, we do i[0] so
         # that we don't have to deal with lists. get_img_ann_pair() returns a
@@ -630,6 +653,7 @@ class OBBAnns:
 
         img_dir = osp.join(data_root, 'images')
         seg_dir = osp.join(data_root, 'segmentation')
+        inst_dir = osp.join(data_root, 'instance')
 
         # Get the actual image filepath and the segmentation filepath
         img_fp = osp.join(img_dir, img_info['filename'])
@@ -638,36 +662,49 @@ class OBBAnns:
         # Remember: PIL Images are in form (h, w, 3)
         img = Image.open(img_fp)
 
-        seg_fp = osp.join(
-            seg_dir,
-            osp.splitext(img_info['filename'])[0] + '_seg.png'
-        )
-        seg = Image.open(seg_fp)
+        if instances:
+            # Do stuff
+            inst_fp = osp.join(
+                inst_dir,
+                osp.splitext(img_info['filename'])[0] + '_inst.png'
+            )
+            overlay = Image.open(inst_fp)
+            img.putalpha(255)
+            img = Image.alpha_composite(img, overlay)
+            img = img.convert('RGB')
 
-        # Here we overlay the segmentation on the original image using the
-        # colorcet colors
-        # First we need to get the new color values from colorcet
-        colors = [ImageColor.getrgb(i) for i in cc.glasbey]
-        colors = np.array(colors).reshape(768, ).tolist()
-        colors[0:3] = [0, 0, 0]  # Set background to black
+        else:
+            seg_fp = osp.join(
+                seg_dir,
+                osp.splitext(img_info['filename'])[0] + '_seg.png'
+            )
+            overlay = Image.open(seg_fp)
 
-        # Then put the palette
-        seg.putpalette(colors)
+            # Here we overlay the segmentation on the original image using the
+            # colorcet colors
+            # First we need to get the new color values from colorcet
+            colors = [ImageColor.getrgb(i) for i in cc.glasbey]
+            colors = np.array(colors).reshape(768, ).tolist()
+            colors[0:3] = [0, 0, 0]  # Set background to black
 
-        # Now the img and the segmentation can be composed together. Black
-        # areas in the segmentation (i.e. background) are ignored
-        seg_array = np.array(seg)
-        mask = np.zeros_like(seg_array)
-        mask[np.where(seg_array == 0)] = 255
-        mask = Image.fromarray(mask, mode='L')
+            # Then put the palette
+            overlay.putpalette(colors)
+            overlay_array = np.array(overlay)
 
-        img = Image.composite(img, seg.convert('RGB'), mask)
+            # Now the img and the segmentation can be composed together. Black
+            # areas in the segmentation (i.e. background) are ignored
+
+            mask = np.zeros_like(overlay_array)
+            mask[np.where(overlay_array == 0)] = 255
+            mask = Image.fromarray(mask, mode='L')
+
+            img = Image.composite(img, overlay.convert('RGB'), mask)
         draw = ImageDraw.Draw(img)
 
         # Now draw the gt bounding boxes onto the image
         for ann in ann_info.to_dict('records'):
             draw = self._draw_bbox(draw, ann, '#00ff00', oriented,
-                                   annotation_set)
+                                   annotation_set, instances)
 
         if self.proposals is not None:
             prop_info = self.get_img_props(idxs=img_idx, ids=img_id)
