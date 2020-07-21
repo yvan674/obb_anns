@@ -4,6 +4,7 @@ Provides a toolkit to work with oriented bounding box ann_info.
 
 Author:
     Yvan Satyawan <y_satyawan@hotmail.com>
+    Lukas Tuggener <tugg@zhaw.ch>
 
 Created on:
     February 19, 2020
@@ -26,6 +27,7 @@ except ModuleNotFoundError:
     import warnings
     warnings.warn('polyiou was not found. Running with no support for metric '
                   'calculation.')
+
 
 
 class OBBAnns:
@@ -182,10 +184,12 @@ class OBBAnns:
         self.prop_ann_set_idx = self.annotation_sets.index(
             props['annotation_set']
         )
+
         props_dict = {
             'bbox': [],
             'cat_id': [],
-            'img_idx': []
+            'img_idx': [],
+            'score': []
         }
         bbox_len = len(props['proposals'][0]['bbox'])
         assert bbox_len in (4, 8), 'bbox proposal is malformed. \'bbox\' ' \
@@ -199,6 +203,7 @@ class OBBAnns:
                                                  dtype=np.float32))
             props_dict['cat_id'].append(prop['cat_id'])
             props_dict['img_idx'].append(prop_img_idx)
+            props_dict['score'].append(prop['score'])
 
         self.proposals = pd.DataFrame(props_dict)
 
@@ -403,7 +408,6 @@ class OBBAnns:
                                 VectorDouble(row['det']))
 
             def calculate_aligned_overlap(row):
-                # row = row[1]
                 a = row['gt']
                 b = row['det']
                 dx_int = min([a[2], b[2]]) - max([a[0], b[0]])
@@ -440,33 +444,37 @@ class OBBAnns:
 
                 max_overlap = overlaps.max()
 
-                # Means that there's at least one with an overlap. We take the
-                # object with highest overlap.
-                return {'bbox_id': overlaps.idxmax(), 'overlap': max_overlap}
-
+                if max_overlap > 0.2: # minimum overlap to "reserve a gt"
+                    # Means that there's at least one with an overlap. We take the
+                    # object with highest overlap.
+                    return {'bbox_id': overlaps.idxmax(), 'overlap': max_overlap}
+                else:
+                    return {'bbox_id': -1, 'overlap': 0.}
             else:
                 return {'bbox_id': -1, 'overlap': 0.}
 
         overlaps = []
         unique_images = np.unique(self.proposals['img_idx'])
         tot_props = self.proposals['cat_id'].value_counts()
+
         for img_idx in tqdm(unique_images):
             # For every image, look at each detection
             # img_props is a pandas DataFrame
             img_props = self.proposals[self.proposals['img_idx'] == img_idx]
             img_gt = self.get_anns(img_idx=img_idx)  # This is a dict of dicts
+            # sort props by confidence
+            img_props = img_props.sort_values('score')
 
             # For all detections in an image, compare them to the ground truths
             for det_idx, det in img_props.iterrows():
                 tpfp = calculate_tpfp(det, img_gt)
                 val, overlap = tpfp['bbox_id'], tpfp['overlap']
-                overlaps.append([val, overlap, det['cat_id']])
-
+                overlaps.append([val, overlap, det['cat_id'], float(det['score'])])
+                if val != -1:
+                    img_gt = img_gt.drop(val)
+                    #TODO: compute all overlaps and find best gt/props matching in a second step
         overlaps = np.array(overlaps)
-        # if overlaps_savefile is not None:
-        #     with open(overlaps_savefile+'.npy', 'wb') as f:
-        #         np.save(f, overlaps)
-        # overlaps = np.load("overlaps.npy")
+
 
         results_dict = {}
         if classwise:
@@ -496,57 +504,98 @@ class OBBAnns:
                 results_dict[cls_key] = averaged_dict
         return results_dict
 
-    def _evaluate_overlaps(self, overlaps, tot_props, iou_thrs, by_class=None):
-        overlaps_dict = {}
+    def _evaluate_overlaps(self, overlaps,tot_props, iou_thrs, by_class=None):
+        metrics = {}
+
         for iou_thr in iou_thrs:
+            
+            # sort overlaps by score:
+            overlaps = overlaps[overlaps[:, 3].argsort()[::-1]]
+            
+            # find hits based on treshhold
+            tp_ind = overlaps[overlaps[:,1]>= iou_thr,0].astype(int)
+            fp_ind = overlaps[overlaps[:,1] < iou_thr,0].astype(int)
 
-            tp = overlaps[overlaps[:, 1] >= iou_thr]
-            fp = overlaps[overlaps[:, 1] < iou_thr]
+            tp = overlaps[:,1] >= iou_thr
+            fp = overlaps[:,1] < iou_thr
 
-            # Count number of False Positive (i.e. calculate_tpfp returned -1)
-            tot_fp = len(fp)
-
-            # Count number of ground truths with a corresponding detection
-            # (True Positive)
-            unique_indexes = np.unique(tp[:, 0], return_index=True)[1]
-            tp_set = tp[unique_indexes]
-            tot_tp = len(tp_set)
-
-            # Count number of ground truths with multiple corresponding
-            # detections (False Positive)
-            tot_fp += len(tp) - len(tp_set)
+            tp_sum = np.cumsum(tp).astype(dtype=np.float)
+            fp_sum = np.cumsum(fp).astype(dtype=np.float)
 
             # Count number of ground truths without a corresponding detection
             # (False Negative)
             if by_class is not None:
-                ann_gt_idxs = list(
-                    self.ann_info[self.ann_info['cat_id'].map(
-                        lambda x: int(x[0])) == by_class].index
-                )
+                #ann_gt_idxs = set([index for index, row in self.ann_info.iterrows() if int(row['cat_id'][0]) == by_class])
+                ann_gt_idxs = set(self.ann_info[self.ann_info['cat_id'].map(lambda x: int(x[0])) == by_class].index)
             else:
-                ann_gt_idxs = list(self.ann_info.index)
-            fn = []
-            for i in list(tp_set[:, 0]):
-                if i not in ann_gt_idxs:
-                    fn.append(i)
-            if by_class is not None:
-                accuracy = tot_tp / tot_props[by_class]
-            else:
-                accuracy = tot_tp / tot_props.sum()
+                #ann_gt_idxs = set([index for index, row in self.ann_info.iterrows()])
+                ann_gt_idxs = set(self.ann_info.index)
 
-            precision = tot_tp / (tot_tp + tot_fp)
-            if tot_tp == 0:  # avoid division by zero
-                recall = 0
-            else:
-                recall = tot_tp / (tot_tp + len(fn))
+            nr_gt = len(ann_gt_idxs)
 
-            overlaps_dict[iou_thr] = {'accuracy': accuracy,
-                                      'precision': precision,
-                                      'recall': recall}
-        return overlaps_dict
+            if nr_gt > 0:
+                recall = tp_sum / nr_gt
+            else:
+                recall = tp_sum *0
+            precision = tp_sum / (fp_sum + tp_sum + np.spacing(1))
+
+            # pad vectors for computation
+            average_precision = self._average_precision(recalls=recall, precisions=precision)
+            
+            metrics[iou_thr] =    { 'ap': average_precision,
+                                    'precision': np.average(precision),
+                                    'recall': np.average(recall)}
+        return metrics
+
+    def _average_precision(self, recalls, precisions, mode='area'):
+        """Calculate average precision (for single or multiple scales).
+
+        Args:
+            recalls (ndarray): shape (num_scales, num_dets) or (num_dets, )
+            precisions (ndarray): shape (num_scales, num_dets) or (num_dets, )
+            mode (str): 'area' or '11points', 'area' means calculating the area
+                under precision-recall curve, '11points' means calculating
+                the average precision of recalls at [0, 0.1, ..., 1]
+
+        Returns:
+            float or ndarray: calculated average precision
+        """
+        no_scale = False
+        if recalls.ndim == 1:
+            no_scale = True
+            recalls = recalls[np.newaxis, :]
+            precisions = precisions[np.newaxis, :]
+        assert recalls.shape == precisions.shape and recalls.ndim == 2
+        num_scales = recalls.shape[0]
+        ap = np.zeros(num_scales, dtype=np.float32)
+        if mode == 'area':
+            zeros = np.zeros((num_scales, 1), dtype=recalls.dtype)
+            ones = np.ones((num_scales, 1), dtype=recalls.dtype)
+            mrec = np.hstack((zeros, recalls, ones))
+            mpre = np.hstack((zeros, precisions, zeros))
+            for i in range(mpre.shape[1] - 1, 0, -1):
+                mpre[:, i - 1] = np.maximum(mpre[:, i - 1], mpre[:, i])
+            for i in range(num_scales):
+                ind = np.where(mrec[i, 1:] != mrec[i, :-1])[0]
+                ap[i] = np.sum(
+                    (mrec[i, ind + 1] - mrec[i, ind]) * mpre[i, ind + 1])
+        elif mode == '11points':
+            for i in range(num_scales):
+                for thr in np.arange(0, 1 + 1e-3, 0.1):
+                    precs = precisions[i, recalls[i, :] >= thr]
+                    prec = precs.max() if precs.size > 0 else 0
+                    ap[i] += prec
+                ap /= 11
+        else:
+            raise ValueError(
+                'Unrecognized mode, only "area" and "11points" are supported')
+        if no_scale:
+            ap = ap[0]
+        return ap
 
     def _draw_bbox(self, draw, ann, color, oriented, annotation_set=None,
-                   instances=False):
+                   print_label=False, print_staff_pos=False, print_onset=False):
+
         """Draws the bounding box onto an image with a given color.
 
         :param ImageDraw.ImageDraw draw: ImageDraw object to draw with.
@@ -558,8 +607,13 @@ class OBBAnns:
             bounding box.
         :param Optional[int] annotation_set: Index of the annotation set to be
             drawn. If None is given, the first one available will be drawn.
-        :param Optional[bool] instances: Show instance in label or class in
-            label. If True, shows the instance numerical value.
+        :param Optional[bool] print_label: Determines if the class labels
+        are printed on the visualization
+        :param Optional[bool] print_staff_pos: Determines if the staff positions
+        are printed on the visualization
+        :param Optional[bool] print_onset:  Determines if the onsets are
+        printed on the visualization
+
         :return: The drawn object.
         :rtype: ImageDraw.ImageDraw
         """
@@ -580,14 +634,37 @@ class OBBAnns:
             label = self.cat_info[cat_id]['name']
         if oriented:
             bbox = ann['o_bbox']
-            draw.polygon(bbox, outline=color)
+            #draw.polygon(bbox, outline=color)
+            draw.line(bbox + bbox[:2], fill=color, width=3
+                      )
         else:
             bbox = ann['a_bbox']
-            draw.rectangle(bbox, outline=color)
+            draw.rectangle(bbox, outline=color, width=2)
 
-        # Now draw the label below the bbox
+        #Now draw the label below the bbox
         x0 = min(bbox[::2])
         y0 = max(bbox[1::2])
+        pos = (x0, y0)
+        def print_text_label(pos,text,color_text,color_box):
+            x1, y1 = ImageFont.load_default().getsize(text)
+            x1 += pos[0] + 4
+            y1 += pos[1] + 4
+            draw.rectangle((pos[0], pos[1], x1, y1), fill=color_box)
+            draw.text((pos[0] + 2, pos[1] + 2), text, color_text)
+            return (x1, pos[1])
+
+        parsed_comments = self.parse_comments(ann['comments'])
+
+        if print_label:
+            pos = print_text_label(pos, cat, '#ffffff', '#303030')
+        if print_onset:
+            pos = print_text_label(pos, parsed_comments['onset'], '#ffffff', '#091e94')
+        if print_staff_pos and 'rel_position' in parsed_comments.keys():
+            pos = print_text_label(pos, parsed_comments['rel_position'], '#ffffff', '#0a7313')
+
+        if cat == 'beam' or cat == 'tie' or cat == 'slur':
+            pos = print_text_label(pos, cat, '#ffffff', '#303030')
+
 
         x1, y1 = ImageFont.load_default().getsize(label)
         x1 += x0 + 4
@@ -595,6 +672,40 @@ class OBBAnns:
         draw.rectangle((x0, y0, x1, y1), fill='#303030')
         draw.text((x0 + 2, y0 + 2), label, '#ffffff')
         return draw
+
+    def get_class_occurences(self):
+        """Just returns the number of occurences per category.
+
+        :returns The number of occurences per category in the currently loaded dataset.
+        :rtype: dict
+        """
+        annotation_set_index = self.annotation_sets.index(self.chosen_ann_set[0])
+        anns = self.ann_info['cat_id'].apply(lambda x:x[annotation_set_index])
+        anns_count = anns.value_counts()
+        return_dict = {}
+        for (key, value) in self.cat_info.items():
+            if value['annotation_set'] not in self.chosen_ann_set or value['name'] in self.classes_blacklist:
+                continue
+
+            if str(key) in anns_count.index:
+                return_dict[value['name']] = anns_count[str(key)]
+            else:
+                return_dict[value['name']] = 0
+
+        return return_dict
+
+    def parse_comments(self, comment):
+        """Parses the comment field of an annotation.
+
+        :returns dictionary with every comment name as keys
+        :rtype: dict
+        """
+        parsed_dict = dict()
+        for co in comment.split(";"):
+            if len(co.split(":"))>1:
+                key, value = co.split(":")
+                parsed_dict[key] = value
+        return parsed_dict
 
     def visualize(self,
                   img_idx=None,
@@ -703,8 +814,9 @@ class OBBAnns:
 
         # Now draw the gt bounding boxes onto the image
         for ann in ann_info.to_dict('records'):
-            draw = self._draw_bbox(draw, ann, '#00ff00', oriented,
-                                   annotation_set, instances)
+            draw = self._draw_bbox(draw, ann, '#ed0707', oriented,
+                                   annotation_set)
+
 
         if self.proposals is not None:
             prop_info = self.get_img_props(idxs=img_idx, ids=img_id)
