@@ -12,12 +12,21 @@ Created on:
 import json
 from time import time
 from datetime import datetime
+from typing import List
+import re
+
 import numpy as np
 import os.path as osp
 from PIL import Image, ImageColor, ImageDraw, ImageFont
 import colorcet as cc
 import pandas as pd
-from .polyiou import iou_poly, VectorDouble
+from tqdm import tqdm
+try:
+    from .polyiou import iou_poly, VectorDouble
+except ModuleNotFoundError:
+    import warnings
+    warnings.warn('polyiou was not found. Running with no support for metric '
+                  'calculation.')
 
 
 
@@ -59,7 +68,7 @@ class OBBAnns:
         self.annotation_sets = None
         self.cat_info = None
         self.ann_info = None
-        self.chosen_ann_set = None
+        self.chosen_ann_set = None  # type: None or List[str]
         self.classes_blacklist = []
         self.classes_blacklist_id = []
 
@@ -76,7 +85,7 @@ class OBBAnns:
             information += f"\nProposal file: {self.proposal_file}"
             information += f"\nNum proposals: {len(self.proposals)}>"
         else:
-            information += "No proposals loaded."
+            information += "\nNo proposals loaded."
         return information
 
     def __len__(self):
@@ -114,9 +123,9 @@ class OBBAnns:
         # Sets annotation sets and makes sure it exists
         if annotation_set_filter is not None:
             assert annotation_set_filter in self.annotation_sets, \
-                    f"The chosen annotation_set_filter " \
-                    f"{annotation_set_filter} is not a in the available " \
-                    f"annotations sets."
+                f"The chosen annotation_set_filter " \
+                f"{annotation_set_filter} is not a in the available " \
+                f"annotations sets."
             self.chosen_ann_set = annotation_set_filter
         else:
             self.chosen_ann_set = self.annotation_sets
@@ -190,7 +199,8 @@ class OBBAnns:
 
         for prop in props['proposals']:
             prop_img_idx = self.img_idx_lookup[prop["img_id"]]
-            props_dict['bbox'].append(np.asarray(prop['bbox'], dtype=np.float32))
+            props_dict['bbox'].append(np.asarray(prop['bbox'],
+                                                 dtype=np.float32))
             props_dict['cat_id'].append(prop['cat_id'])
             props_dict['img_idx'].append(prop_img_idx)
             props_dict['score'].append(prop['score'])
@@ -199,7 +209,7 @@ class OBBAnns:
 
         print('done! t={:.2f}s'.format(time() - start_time))
 
-    def set_annotation_set_filter(self, annotation_set_filter):
+    def set_annotation_set_filter(self, annotation_set_filter: List[str]):
         """Sets the annotation set filter for future get calls.
 
         :param annotation_set_filter: The annotation set to filter by.
@@ -214,7 +224,9 @@ class OBBAnns:
         :type blacklist: list
         """
         self.classes_blacklist = blacklist
-        self.classes_blacklist_id = [key for (key, value) in self.cat_info.items() if value['name'] in self.classes_blacklist]
+        self.classes_blacklist_id = [key
+                                     for (key, value) in self.cat_info.items()
+                                     if value['name'] in self.classes_blacklist]
 
     def get_imgs(self, idxs=None, ids=None):
         """Gets the information of imgs at the given indices/ids.
@@ -272,9 +284,10 @@ class OBBAnns:
         :returns The category information of the currently loaded dataset.
         :rtype: dict
         """
-        return {key: value for (key, value) in self.cat_info.items() 
-         if value['annotation_set'] in self.chosen_ann_set and value['name'] not in self.classes_blacklist}
-        
+        return {key: value for (key, value) in self.cat_info.items()
+                if value['annotation_set'] in self.chosen_ann_set
+                and value['name'] not in self.classes_blacklist}
+
     def get_ann_ids(self, ann_ids, ann_set_filter=None):
         """Gets the annotation information for a given list of ann_ids.
 
@@ -282,7 +295,7 @@ class OBBAnns:
         :param ann_set_filter: Filter by annotation set. If None, uses the
             filter chosen in the method set_annotation_filter().
         :type ann_ids: list[str] or list[int]
-        :type ann_set_filter: str
+        :type ann_set_filter: list or str
         :returns: The annotation information requested.
         :rtype: pd.DataFrame
         """
@@ -295,14 +308,18 @@ class OBBAnns:
         # Get annotation set index and return only the specific category id
         if ann_set_filter is None:
             ann_set_filter = self.chosen_ann_set
-        ann_set_idx = [self.annotation_sets.index(ann_set) for ann_set in ann_set_filter]
+        if isinstance(ann_set_filter, str):
+            ann_set_filter = [ann_set_filter]
+        ann_set_idx = [self.annotation_sets.index(ann_set)
+                       for ann_set in ann_set_filter]
 
         def filter_ids(record):
-            return [int(record[id]) 
-                    for id in ann_set_idx 
-                    if int(record[id]) not in self.classes_blacklist_id]
+            return [int(record[idx])
+                    for idx in ann_set_idx
+                    if int(record[idx]) not in self.classes_blacklist_id]
+
         selected['cat_id'] = selected['cat_id'].map(filter_ids)
-        selected = selected[selected['cat_id'].map(lambda x:len(x))>0]
+        selected = selected[selected['cat_id'].map(lambda x: len(x)) > 0]
 
         return selected
 
@@ -353,7 +370,8 @@ class OBBAnns:
         selector = self.proposals.img_idx.isin(idxs)
         return self.proposals[selector]
 
-    def calculate_metrics(self, iou_thrs=[0.5, 0.55], classwise=False, overlaps_savefile = None, average_thrs = True):
+    def calculate_metrics(self, iou_thrs=(0.5, 0.55), classwise=False,
+                          average_thrs=True):
         """Calculates proposed bounding box validation metrics.
 
         Calculates accuracy as total true positives / total detections
@@ -361,42 +379,52 @@ class OBBAnns:
         as a class-wise AP.
         Calculates the AR with 100 detections per image.
 
+        :param list iou_thrs: IOU threshold range to calculate. Two values
+            should be given. IOU is then calculated for each threshold value in
+            the given range.
+        :param bool classwise: Whether or not to use calculate classwise-
+            metrics. If False, uses calculates average metrics.
+        :param bool average_thrs: Whether or not to get the average of the
+            thresholds range.
+
         :returns A dictionary of calculated metric values.
         :rtype: dict
         """
+
         def calculate_tpfp(detection, img_gt):
             """Calculates whether a detection is a true or false positive.
 
             :param pd.Series detection: Data frame for the detection
             :param pd.DataFrame img_gt: Ground truth for the image.
-            :returns: ann_id of true positive bbox. If the detection is a
-                false positive, then returns -1. Also returns the overlap with
-                the true positive bbox.
-            :rtype: dict[int, float]
+            :returns: ann_id as int of true positive bbox. If the detection is a
+                false positive, then returns -1. Also returns the overlap as a
+                float with the true positive bbox. Keys are 'bbox'_id' and
+                'overlap'.
+            :rtype: dict
             """
+
             def calculate_oriented_overlap(row):
                 return iou_poly(VectorDouble(row['gt']),
                                 VectorDouble(row['det']))
 
             def calculate_aligned_overlap(row):
-
                 a = row['gt']
                 b = row['det']
-                dx_int = min([a[2],b[2]]) - max([a[0], b[0]])
-                dy_int = min([a[3],b[3]]) - max([a[1],b[1]])
+                dx_int = min([a[2], b[2]]) - max([a[0], b[0]])
+                dy_int = min([a[3], b[3]]) - max([a[1], b[1]])
 
-                dx_ov = max([a[2],b[2]]) - min([a[0], b[0]])
-                dy_ov = max([a[3],b[3]]) - min([a[1],b[1]])
+                dx_ov = max([a[2], b[2]]) - min([a[0], b[0]])
+                dy_ov = max([a[3], b[3]]) - min([a[1], b[1]])
 
                 if (dx_int >= 0) and (dy_int >= 0):
-                    return (dx_int * dy_int)/(dx_ov*dy_ov)
+                    return (dx_int * dy_int) / (dx_ov * dy_ov)
                 else:
                     return 0.
 
             # expect to only have one annotation set at this point
-            gt_cat_id = img_gt['cat_id'].map(lambda x:x[0])
+            gt_cat_id = img_gt['cat_id'].map(lambda x: x[0])
             same_cat_gt = img_gt[gt_cat_id == detection['cat_id']]
-            if len(same_cat_gt) > 0: #
+            if len(same_cat_gt) > 0:
                 if self.props_oriented:
                     df = pd.DataFrame({
                         'gt': same_cat_gt['o_bbox'],
@@ -406,14 +434,13 @@ class OBBAnns:
                 else:
                     df = pd.DataFrame({
                         'gt': same_cat_gt['a_bbox'],
-                        'det': [detection['bbox'] ]* len(same_cat_gt)
+                        'det': [detection['bbox']] * len(same_cat_gt)
                     })
                     # overlaps = np.zeros(df.shape[0])
                     # for id, row in enumerate(df.iterrows()):
                     #     calculate_aligned_overlap(row)
                     #     print(row)
                     overlaps = df.apply(calculate_aligned_overlap, 1)
-
 
                 max_overlap = overlaps.max()
 
@@ -426,13 +453,10 @@ class OBBAnns:
             else:
                 return {'bbox_id': -1, 'overlap': 0.}
 
-
         overlaps = []
         unique_images = np.unique(self.proposals['img_idx'])
         tot_props = self.proposals['cat_id'].value_counts()
 
-        from tqdm import tqdm
-        #unique_images = unique_images[:3]
         for img_idx in tqdm(unique_images):
             # For every image, look at each detection
             # img_props is a pandas DataFrame
@@ -451,12 +475,21 @@ class OBBAnns:
                     #TODO: compute all overlaps and find best gt/props matching in a second step
         overlaps = np.array(overlaps)
 
+
         results_dict = {}
         if classwise:
             for class_idx in np.unique(overlaps[:, 2]):
-                results_dict[class_idx] = self._evaluate_overlaps(overlaps[overlaps[:,2]==class_idx], tot_props, iou_thrs, by_class=class_idx)
+                results_dict[class_idx] = self._evaluate_overlaps(
+                    overlaps[overlaps[:, 2] == class_idx],
+                    tot_props,
+                    iou_thrs,
+                    by_class=class_idx
+                )
         else:
-            results_dict["average"] = self._evaluate_overlaps(overlaps, tot_props, iou_thrs)
+            results_dict["average"] = self._evaluate_overlaps(
+                overlaps,
+                tot_props,
+                iou_thrs)
 
         if average_thrs:
             for cls_key, tresh_dict in results_dict.items():
@@ -467,12 +500,13 @@ class OBBAnns:
                     for key in averaged_dict.keys():
                         averaged_dict[key] += eval_dict[key]
                 for key in averaged_dict.keys():
-                    averaged_dict[key] = averaged_dict[key]/len(tresh_dict)
+                    averaged_dict[key] = averaged_dict[key] / len(tresh_dict)
                 results_dict[cls_key] = averaged_dict
         return results_dict
 
     def _evaluate_overlaps(self, overlaps,tot_props, iou_thrs, by_class=None):
         metrics = {}
+
         for iou_thr in iou_thrs:
             
             # sort overlaps by score:
@@ -561,6 +595,7 @@ class OBBAnns:
 
     def _draw_bbox(self, draw, ann, color, oriented, annotation_set=None,
                    print_label=False, print_staff_pos=False, print_onset=False):
+
         """Draws the bounding box onto an image with a given color.
 
         :param ImageDraw.ImageDraw draw: ImageDraw object to draw with.
@@ -578,6 +613,7 @@ class OBBAnns:
         are printed on the visualization
         :param Optional[bool] print_onset:  Determines if the onsets are
         printed on the visualization
+
         :return: The drawn object.
         :rtype: ImageDraw.ImageDraw
         """
@@ -585,7 +621,17 @@ class OBBAnns:
         cat_id = ann['cat_id']
         if isinstance(cat_id, list):
             cat_id = int(cat_id[annotation_set])
-        cat = self.cat_info[cat_id]['name']
+
+        if instances:
+            comment = ann['comments']
+            # Parse comment string to find the instance value using regex
+            match = re.search(r'(?<=instance:)#......', comment)
+            if match:
+                label = str(int(match[0].lstrip('#'), 16))
+            else:
+                label = ' '
+        else:
+            label = self.cat_info[cat_id]['name']
         if oriented:
             bbox = ann['o_bbox']
             #draw.polygon(bbox, outline=color)
@@ -619,6 +665,12 @@ class OBBAnns:
         if cat == 'beam' or cat == 'tie' or cat == 'slur':
             pos = print_text_label(pos, cat, '#ffffff', '#303030')
 
+
+        x1, y1 = ImageFont.load_default().getsize(label)
+        x1 += x0 + 4
+        y1 += y0 + 4
+        draw.rectangle((x0, y0, x1, y1), fill='#303030')
+        draw.text((x0 + 2, y0 + 2), label, '#ffffff')
         return draw
 
     def get_class_occurences(self):
@@ -662,6 +714,7 @@ class OBBAnns:
                   out_dir=None,
                   annotation_set=None,
                   oriented=True,
+                  instances=False,
                   show=True):
         """Uses PIL to visualize the ground truth labels of a given image.
 
@@ -684,19 +737,26 @@ class OBBAnns:
             bounding boxes. A value of True means it will show oriented boxes.
         :param bool show: Whether or not to use pillow's show() method to
             visualize the image.
+        :param bool instances: Choose whether to show classes or instances. If
+            False, then shows classes. Else, shows instances as the labels on
+            bounding boxes.
         """
         # Since we can only visualize a single image at a time, we do i[0] so
         # that we don't have to deal with lists. get_img_ann_pair() returns a
         # tuple that's why we use list comprehension
         img_idx = [img_idx] if img_idx is not None else None
         img_id = [img_id] if img_id is not None else None
-        img_info, ann_info = [i[0] for i in
-                              self.get_img_ann_pair(idxs=img_idx, ids=img_id)]
 
         if annotation_set is None:
             annotation_set = 0
+            self.chosen_ann_set = self.annotation_sets[0]
         else:
             annotation_set = self.annotation_sets.index(annotation_set)
+            self.chosen_ann_set = self.chosen_ann_set[annotation_set]
+
+        img_info, ann_info = [i[0] for i in
+                              self.get_img_ann_pair(
+                                  idxs=img_idx, ids=img_id)]
 
         # Get the data_root from the ann_file path if it doesn't exist
         if data_root is None:
@@ -704,6 +764,7 @@ class OBBAnns:
 
         img_dir = osp.join(data_root, 'images')
         seg_dir = osp.join(data_root, 'segmentation')
+        inst_dir = osp.join(data_root, 'instance')
 
         # Get the actual image filepath and the segmentation filepath
         img_fp = osp.join(img_dir, img_info['filename'])
@@ -712,36 +773,50 @@ class OBBAnns:
         # Remember: PIL Images are in form (h, w, 3)
         img = Image.open(img_fp)
 
-        seg_fp = osp.join(
-            seg_dir,
-            osp.splitext(img_info['filename'])[0] + '_seg.png'
-        )
-        seg = Image.open(seg_fp)
+        if instances:
+            # Do stuff
+            inst_fp = osp.join(
+                inst_dir,
+                osp.splitext(img_info['filename'])[0] + '_inst.png'
+            )
+            overlay = Image.open(inst_fp)
+            img.putalpha(255)
+            img = Image.alpha_composite(img, overlay)
+            img = img.convert('RGB')
 
-        # Here we overlay the segmentation on the original image using the
-        # colorcet colors
-        # First we need to get the new color values from colorcet
-        colors = [ImageColor.getrgb(i) for i in cc.glasbey]
-        colors = np.array(colors).reshape(768,).tolist()
-        colors[0:3] = [0, 0, 0]   # Set background to black
+        else:
+            seg_fp = osp.join(
+                seg_dir,
+                osp.splitext(img_info['filename'])[0] + '_seg.png'
+            )
+            overlay = Image.open(seg_fp)
 
-        # Then put the palette
-        seg.putpalette(colors)
+            # Here we overlay the segmentation on the original image using the
+            # colorcet colors
+            # First we need to get the new color values from colorcet
+            colors = [ImageColor.getrgb(i) for i in cc.glasbey]
+            colors = np.array(colors).reshape(768, ).tolist()
+            colors[0:3] = [0, 0, 0]  # Set background to black
 
-        # Now the img and the segmentation can be composed together. Black
-        # areas in the segmentation (i.e. background) are ignored
-        seg_array = np.array(seg)
-        mask = np.zeros_like(seg_array)
-        mask[np.where(seg_array == 0)] = 255
-        mask = Image.fromarray(mask, mode='L')
+            # Then put the palette
+            overlay.putpalette(colors)
+            overlay_array = np.array(overlay)
 
-        img = Image.composite(img, seg.convert('RGB'), mask)
+            # Now the img and the segmentation can be composed together. Black
+            # areas in the segmentation (i.e. background) are ignored
+
+            mask = np.zeros_like(overlay_array)
+            mask[np.where(overlay_array == 0)] = 255
+            mask = Image.fromarray(mask, mode='L')
+
+            img = Image.composite(img, overlay.convert('RGB'), mask)
         draw = ImageDraw.Draw(img)
 
         # Now draw the gt bounding boxes onto the image
         for ann in ann_info.to_dict('records'):
             draw = self._draw_bbox(draw, ann, '#ed0707', oriented,
                                    annotation_set)
+
 
         if self.proposals is not None:
             prop_info = self.get_img_props(idxs=img_idx, ids=img_id)

@@ -219,3 +219,7 @@ venv.bak/
 # mypy
 .mypy_cache/
 
+/.idea/
+/deep_scores_dense_extended/
+/ds_extended.zip
+/obb_anns/polyiou/polyiou.py
