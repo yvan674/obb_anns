@@ -13,7 +13,6 @@ import json
 from time import time
 from datetime import datetime
 from typing import List
-import re
 
 import numpy as np
 import os.path as osp
@@ -26,8 +25,7 @@ try:
 except ModuleNotFoundError:
     import warnings
     warnings.warn('polyiou was not found. Running with no support for metric '
-                  'calculation.')
-
+                  'calculations.')
 
 
 class OBBAnns:
@@ -812,7 +810,6 @@ class OBBAnns:
         for ann in ann_info.to_dict('records'):
             draw = self._draw_bbox(draw, ann, '#ed0707', oriented,
                                    annotation_set, instances)
-
 
         if self.proposals is not None:
             prop_info = self.get_img_props(idxs=img_idx, ids=img_id)

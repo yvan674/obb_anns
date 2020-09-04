@@ -96,6 +96,7 @@ setup(name='obb_anns',
           'pillow',
           'colorcet',
           'pandas',
+          'tqdm'
       ],
       python_requires='>=3',
       cmdclass={'install': InstallPolyIOU,
