@@ -24,8 +24,9 @@ try:
     from .polyiou import iou_poly, VectorDouble
 except ModuleNotFoundError:
     import warnings
-    warnings.warn('polyiou was not found. Running with no support for metric '
-                  'calculations.')
+    warning_string = 'polyiou was not found. Running with no support for ' \
+                     'metric calculations.'
+    warnings.warn(warning_string)
 
 
 class OBBAnns:
@@ -400,7 +401,6 @@ class OBBAnns:
                 'overlap'.
             :rtype: dict
             """
-
             def calculate_oriented_overlap(row):
                 return iou_poly(VectorDouble(row['gt']),
                                 VectorDouble(row['det']))
@@ -636,13 +636,13 @@ class OBBAnns:
         y0 = max(bbox[1::2])
         pos = (x0, y0)
 
-        def print_text_label(pos, text, color_text, color_box):
+        def print_text_label(position, text, color_text, color_box):
             x1, y1 = ImageFont.load_default().getsize(text)
-            x1 += pos[0] + 4
-            y1 += pos[1] + 4
-            draw.rectangle((pos[0], pos[1], x1, y1), fill=color_box)
-            draw.text((pos[0] + 2, pos[1] + 2), text, color_text)
-            return x1, pos[1]
+            x1 += position[0] + 4
+            y1 += position[1] + 4
+            draw.rectangle((position[0], position[1], x1, y1), fill=color_box)
+            draw.text((position[0] + 2, position[1] + 2), text, color_text)
+            return x1, position[1]
 
         if instances:
             label = str(int(parsed_comments['instance'].lstrip('#'), 16))
