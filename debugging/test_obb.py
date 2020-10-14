@@ -33,7 +33,7 @@ if __name__ == '__main__':
     if args.PROPOSAL:
         a.load_proposals(join(args.ROOT, args.PROPOSAL))
     for i in range(len(a)):
-        a.visualize(img_idx=i)
+        a.visualize(img_idx=i, show = False)
         # a.visualize(img_idx=i, img_dir='images_png')
         response = input('Press q to quit or enter to continue.')
         if response == 'q':
