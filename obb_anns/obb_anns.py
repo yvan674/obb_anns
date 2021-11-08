@@ -426,13 +426,13 @@ class OBBAnns:
                 if self.props_oriented:
                     df = pd.DataFrame({
                         'gt': same_cat_gt['o_bbox'],
-                        'det': [detection['bbox'] * len(same_cat_gt)]
+                        'det': [detection['bbox'].tolist()] * len(same_cat_gt)
                     })
                     overlaps = df.apply(calculate_oriented_overlap, 1)
                 else:
                     df = pd.DataFrame({
                         'gt': same_cat_gt['a_bbox'],
-                        'det': [detection['bbox']] * len(same_cat_gt)
+                        'det': [detection['bbox'].tolist()] * len(same_cat_gt)
                     })
                     # overlaps = np.zeros(df.shape[0])
                     # for id, row in enumerate(df.iterrows()):
@@ -621,10 +621,11 @@ class OBBAnns:
         if isinstance(cat_id, list):
             cat_id = int(cat_id[annotation_set])
 
-        parsed_comments = self.parse_comments(ann['comments'])
+        if 'comments' in ann.keys():
+            parsed_comments = self.parse_comments(ann['comments'])
 
         if oriented:
-            bbox = ann['o_bbox']
+            bbox = ann.get('o_bbox', list(ann['bbox']))
             draw.line(bbox + bbox[:2], fill=color, width=3
                       )
         else:
