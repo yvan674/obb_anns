@@ -625,11 +625,10 @@ class OBBAnns:
             parsed_comments = self.parse_comments(ann['comments'])
 
         if oriented:
-            bbox = ann.get('o_bbox', list(ann['bbox']))
-            draw.line(bbox + bbox[:2], fill=color, width=3
-                      )
+            bbox = list(ann.get('o_bbox', ann.get('bbox', [])))
+            draw.line(bbox + bbox[:2], fill=color, width=3)
         else:
-            bbox = ann['a_bbox']
+            bbox = list(ann.get('a_bbox', ann.get('bbox', [])))
             draw.rectangle(bbox, outline=color, width=2)
 
         # Now draw the label below the bbox
