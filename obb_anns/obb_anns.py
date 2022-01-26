@@ -10,9 +10,10 @@ Created on:
     February 19, 2020
 """
 import json
+import os
 from time import time
 from datetime import datetime
-from typing import List
+from typing import List, Union, Optional, Generator, Dict, Tuple
 
 import numpy as np
 import os.path as osp
@@ -66,7 +67,7 @@ class OBBAnns:
         self.img_idx_lookup = dict()
         self.annotation_sets = None
         self.cat_info = None
-        self.ann_info = None
+        self.ann_info: pd.DataFrame = None
         self.chosen_ann_set = None  # type: None or List[str]
         self.classes_blacklist = []
         self.classes_blacklist_id = []
@@ -96,7 +97,7 @@ class OBBAnns:
                         or (m is None and n is not None))
         assert only_one_arg, 'Only one type of request can be done at a time'
 
-    def load_annotations(self, annotation_set_filter=None):
+    def load_annotations(self, annotation_set_filter: str = None):
         """Loads ann_info into memory.
 
         This is not done in the init in case a dataset is just to be initialized
@@ -113,25 +114,35 @@ class OBBAnns:
 
         # Set up timer
         start_time = time()
-        with open(self.ann_file, 'r') as ann_file:
-            data = json.load(ann_file)
 
+        data = self._load_annotation_json(self.ann_file)
         self.dataset_info = data['info']
         self.annotation_sets = data['annotation_sets']
-
-        # Sets annotation sets and makes sure it exists
-        if annotation_set_filter is not None:
-            assert annotation_set_filter in self.annotation_sets, \
-                f"The chosen annotation_set_filter " \
-                f"{annotation_set_filter} is not a in the available " \
-                f"annotations sets."
-            self.chosen_ann_set = annotation_set_filter
-        else:
-            self.chosen_ann_set = self.annotation_sets
-
+        self.chosen_ann_set = self._get_annotation_set(annotation_set_filter)
         self.cat_info = {int(k): v for k, v in data['categories'].items()}
+        self.ann_info = self._get_ann_info(data['annotations'])
+        self.img_info = data['images']
+        self.img_idx_lookup = self._get_img_idx_lookup(self.img_info)
 
-        # Process annnotations
+        duration = time() - start_time
+
+        print(f"done! t={duration:.2f}s")
+
+    def _load_annotation_json(self, path: Union[os.PathLike, str]) -> dict:
+        with open(path, 'r') as ann_file:
+            return json.load(ann_file)
+
+    def _get_annotation_set(self, annotation_set_filter: str = None) -> List[str]:
+        # Sets annotation sets and makes sure it exists
+        if annotation_set_filter is None:
+            return self.annotation_sets
+        assert annotation_set_filter in self.annotation_sets, \
+            f"The chosen annotation_set_filter " \
+            f"{annotation_set_filter} is not a in the available " \
+            f"annotations sets ({', '.join(self.annotation_sets)})."
+        return self.annotation_sets
+
+    def _get_ann_info(self, ann_dict: dict) -> pd.DataFrame:
         ann_id = []
         anns = {'a_bbox': [],
                 'o_bbox': [],
@@ -139,8 +150,7 @@ class OBBAnns:
                 'area': [],
                 'img_id': [],
                 'comments': []}
-
-        for k, v in data['annotations'].items():
+        for k, v in ann_dict.items():
             ann_id.append(int(k))
             anns['a_bbox'].append(v['a_bbox'])
             anns['o_bbox'].append(v['o_bbox'])
@@ -148,18 +158,69 @@ class OBBAnns:
             anns['area'].append(v['area'])
             anns['img_id'].append(v['img_id'])
             anns['comments'].append(v['comments'])
-        self.ann_info = pd.DataFrame(anns, ann_id)
+        return pd.DataFrame(anns, ann_id)
 
-        self.img_info = data['images']
-
-        for i, img in enumerate(data['images']):
+    def _get_img_idx_lookup(self, img_info: dict) -> Dict[int, int]:
+        idx_lookup = {}
+        for i, img in enumerate(self.img_info):
             # lookup table used to figure out the index in self.img_info of
             # every image based on their img_id
-            self.img_idx_lookup[int(img['id'])] = i
+            idx_lookup[int(img['id'])] = i
+        return idx_lookup
 
-        self.img_info = data['images']
+    def clear(self, clear_dataset_info: bool = True):
+        self.ann_info.drop(self.ann_info.index, inplace=True)
+        self.img_info = []
+        self.img_idx_lookup = {}
+        if clear_dataset_info:
+            self.dataset_info = {}
 
-        print("done! t={:.2f}s".format(time() - start_time))
+    def save_annotations(self, path: Union[os.PathLike, str] = None):
+        if path is None:
+            path = self.ann_file
+        with open(path, 'w') as fp:
+            json.dump({
+                'info': self.dataset_info,
+                'annotation_sets': self.annotation_sets,
+                'categories': self.cat_info,
+                'images': self.img_info,
+                'annotations': self.ann_info.to_dict('index'),
+            }, fp)
+
+    def add_img_ann_pair(self, img: dict, anns: pd.DataFrame) -> int:
+        new_img_id = max(list(self.img_idx_lookup.keys()) + [0]) + 1
+        img['id'] = new_img_id
+        new_ann_id = self.ann_info.last_valid_index()
+        if new_ann_id is None:
+            new_ann_id = 0
+        new_anns = []
+        ann_ids = []
+        for _, ann in anns.iterrows():
+            ann: pd.Series
+            new_ann_id += 1
+            ann_ids.append(str(new_ann_id))
+            ann['img_id'] = str(new_img_id)
+            new_anns.append(ann.to_frame(new_ann_id).T)
+        img['ann_ids'] = ann_ids
+        self.img_info.append(img)
+        self.ann_info = pd.concat([self.ann_info, *new_anns])
+        self.img_idx_lookup[int(img['id'])] = len(self.img_idx_lookup)
+        return new_img_id
+
+    def add_new_img_ann_pair(
+            self,
+            filename: Union[os.PathLike, str],
+            width: int,
+            height: int,
+            ann_dict: dict
+    ) -> int:
+        return self.add_img_ann_pair({
+            'id': None,
+            'filename': filename,
+            'width': width,
+            'height': height,
+            'ann_ids': []
+        }, self._get_ann_info(ann_dict))
 
     def load_proposals(self, proposal_file):
         """Loads proposals into memory.
@@ -227,7 +288,7 @@ class OBBAnns:
                                      for (key, value) in self.cat_info.items()
                                      if value['name'] in self.classes_blacklist]
 
-    def get_imgs(self, idxs=None, ids=None):
+    def get_imgs(self, idxs=None, ids=None) -> List[dict]:
         """Gets the information of imgs at the given indices/ids.
 
         This only works with either idxs or ids, i.e. cannot get both the given
@@ -239,7 +300,7 @@ class OBBAnns:
         :type ids: list or tuple
         :returns: The information of the requested images as a list. Filenames
             will have had the data root as well as paths added to them.
-        :rtype: list
+        :rtype: list[dict]
         :raises: AssertionError if both idxs and ids are given.
         """
         self._xor_args(idxs, ids)
@@ -347,6 +408,12 @@ class OBBAnns:
                 for img in imgs]
 
         return imgs, anns
+
+    def __iter__(self) -> Generator[Tuple[dict, pd.DataFrame], None, None]:
+        for i in range(len(self.img_info)):
+            imgs, anns = self.get_img_ann_pair(idxs=[i])
+            yield imgs[0], anns[0]
+
 
     def get_img_props(self, idxs=None, ids=None):
         """Gets the proposals of an image at a given index or with a given ID.
