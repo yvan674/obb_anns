@@ -1,9 +1,11 @@
 import os
 from pathlib import Path
 from typing import Union, Tuple
+
 import numpy as np
 import torch
 from PIL import Image
+
 from obb_anns import OBBAnns
 
 
@@ -57,17 +59,17 @@ def anns_from_text_anns(dummy_ann: OBBAnns, path: Union[os.PathLike, str], filen
                 raise Exception(f"Failed to find mapping for category {cat_name}!")
             x, y, w, h = int(x), int(y), int(w), int(h)
             angle = float(angle)
-            suff = ''
-            if angle != 0.0:
-                suff = f" ({angle})"
-            print(f"Read ann: {cat_id} ({cat_name}): {x},{y}+{w}x{h}{suff}")
+            # suff = ''
+            # if angle != 0.0:
+            #     suff = f" ({angle})"
+            # print(f"Read ann: {cat_id} ({cat_name}): {x},{y}+{w}x{h}{suff}")
             a_bbox = [x, y, x + h, y + w]
-            o_bbox = rotated_box_to_poly(torch.tensor([[x + h/2.0, y + w/2.0, w, h, np.deg2rad(angle)]]))
+            o_bbox = rotated_box_to_poly(torch.tensor([[x + h / 2.0, y + w / 2.0, w, h, np.deg2rad(angle)]]))
             ann_dict[str(i)] = {
                 'a_bbox': a_bbox,
                 'o_bbox': o_bbox.tolist()[0],
                 'cat_id': cat_id,
-                'area': w*h,
+                'area': w * h,
                 'img_id': 0,
                 'comments': ''
             }
