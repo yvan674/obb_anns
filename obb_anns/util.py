@@ -44,7 +44,7 @@ def anns_from_text_anns(dummy_ann: OBBAnns, path: Union[os.PathLike, str], filen
     for cat_id, cat in dummy_ann.cat_info.items():
         if cat['annotation_set'] not in dummy_ann.chosen_ann_set:
             continue
-        cats[cat['name']] = cats.get(cat['name'], []) + [str(cat_id)]
+        cats[cat['name'].lower()] = cats.get(cat['name'].lower(), []) + [str(cat_id)]
     ann_dict = {}
     with open(path, 'r') as fp:
         i = 0
@@ -57,7 +57,7 @@ def anns_from_text_anns(dummy_ann: OBBAnns, path: Union[os.PathLike, str], filen
                 file = str(Path(file))
             else:
                 file = filename
-            cat_id = cats.get(cat_name, None)
+            cat_id = cats.get(cat_name.lower(), None)
             if cat_id is None:
                 raise Exception(f"Failed to find mapping for category {cat_name}!")
             x, y, w, h = int(x), int(y), int(w), int(h)
