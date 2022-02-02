@@ -13,6 +13,7 @@ if __name__ == '__main__':
     anns.add_new_img_ann_pair(*anns_from_text_anns(anns, 'in/IMSLP651009_6_corr.png.anns', 'in/IMSLP651009_6_corr.png'))
     anns.add_new_img_ann_pair(
         *anns_from_text_anns(anns, 'in/IMSLP255036_16_corr.png.anns', 'in/IMSLP255036_16_corr.png'))
+    anns.add_new_img_ann_pair(*anns_from_text_anns(anns, 'in/3rd_sample.anns', 'in/Liszt_Franz_Konzertetude.png'))
     for i, (img, ann_df) in enumerate(anns):
         anns.visualize(img_idx=i, out_dir='out', annotation_set='deepscores', show=False)
         print(img['filename'], ann_df.shape[0])
