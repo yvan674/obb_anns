@@ -11,16 +11,18 @@ Created on:
 """
 import json
 import os
-from time import time
+import shutil
 from datetime import datetime
+from pathlib import Path
+from time import time
 from typing import List, Union, Optional, Generator, Dict, Tuple
 
-import numpy as np
-import os.path as osp
-from PIL import Image, ImageColor, ImageDraw, ImageFont
 import colorcet as cc
+import numpy as np
 import pandas as pd
+from PIL import Image, ImageColor, ImageDraw, ImageFont
 from tqdm import tqdm
+
 try:
     from .polyiou import iou_poly, VectorDouble
 except ModuleNotFoundError:
@@ -202,6 +204,14 @@ class OBBAnns:
             ann['img_id'] = str(new_img_id)
             new_anns.append(ann.to_frame(new_ann_id).T)
         img['ann_ids'] = ann_ids
+        # Copy image to dataset
+        data_root = Path(self.ann_file).parent
+        img_p = data_root / 'images'
+        img_p.mkdir(exist_ok=True)
+        new_fp = img_p / Path(img['filename']).name
+        shutil.copy(img['filename'], new_fp)
+        # Update filename in case there were parent directories included
+        img['filename'] = Path(img['filename']).name
         self.img_info.append(img)
         self.ann_info = pd.concat([self.ann_info, *new_anns])
         self.img_idx_lookup[int(img['id'])] = len(self.img_idx_lookup)
@@ -411,7 +421,7 @@ class OBBAnns:
 
     def __iter__(self) -> Generator[Tuple[dict, pd.DataFrame], None, None]:
         for i in range(len(self.img_info)):
-            imgs, anns = self.get_img_ann_pair(idxs=[i])
+            imgs, anns = self.get_img_ann_pair(idxs=[i], ann_set_filter='deepscores')
             yield imgs[0], anns[0]
 
 
@@ -809,11 +819,10 @@ class OBBAnns:
         img_id = [img_id] if img_id is not None else None
 
         if annotation_set is None:
-            annotation_set = 0
-            self.chosen_ann_set = self.annotation_sets[0]
+            annotation_set_idx = 0
         else:
-            annotation_set = self.annotation_sets.index(annotation_set)
-            self.chosen_ann_set = self.chosen_ann_set[annotation_set]
+            annotation_set_idx = self.annotation_sets.index(annotation_set)
+        self.chosen_ann_set = self.annotation_sets[annotation_set_idx]
 
         img_info, ann_info = [i[0] for i in
                               self.get_img_ann_pair(
@@ -821,62 +830,58 @@ class OBBAnns:
 
         # Get the data_root from the ann_file path if it doesn't exist
         if data_root is None:
-            data_root = osp.split(self.ann_file)[0]
+            data_root = Path(self.ann_file).parent
 
-        img_dir = osp.join(data_root, 'images')
-        seg_dir = osp.join(data_root, 'segmentation')
-        inst_dir = osp.join(data_root, 'instance')
+        img_dir = data_root / 'images'
+        seg_dir = data_root / 'segmentation'
+        inst_dir = data_root / 'instance'
 
         # Get the actual image filepath and the segmentation filepath
-        img_fp = osp.join(img_dir, img_info['filename'])
-        print(f'Visualizing {img_fp}...')
+        img_fp = img_dir / img_info['filename']
+        print(f'Visualizing {img_fp.name}...')
 
         # Remember: PIL Images are in form (h, w, 3)
         img = Image.open(img_fp)
+        img = img.convert('RGB')
 
         if instances:
             # Do stuff
-            inst_fp = osp.join(
-                inst_dir,
-                osp.splitext(img_info['filename'])[0] + '_inst.png'
-            )
+            inst_fp = inst_dir / f"{img_fp.stem}_inst{img_fp.suffix}"
             overlay = Image.open(inst_fp)
             img.putalpha(255)
             img = Image.alpha_composite(img, overlay)
             img = img.convert('RGB')
 
         else:
-            seg_fp = osp.join(
-                seg_dir,
-                osp.splitext(img_info['filename'])[0] + '_seg.png'
-            )
-            overlay = Image.open(seg_fp)
+            seg_fp = seg_dir / f"{img_fp.stem}_seg{img_fp.suffix}"
+            if seg_fp.is_file():
+                overlay = Image.open(seg_fp)
 
-            # Here we overlay the segmentation on the original image using the
-            # colorcet colors
-            # First we need to get the new color values from colorcet
-            colors = [ImageColor.getrgb(i) for i in cc.glasbey]
-            colors = np.array(colors).reshape(768, ).tolist()
-            colors[0:3] = [0, 0, 0]  # Set background to black
+                # Here we overlay the segmentation on the original image using the
+                # colorcet colors
+                # First we need to get the new color values from colorcet
+                colors = [ImageColor.getrgb(i) for i in cc.glasbey]
+                colors = np.array(colors).reshape(768, ).tolist()
+                colors[0:3] = [0, 0, 0]  # Set background to black
 
-            # Then put the palette
-            overlay.putpalette(colors)
-            overlay_array = np.array(overlay)
+                # Then put the palette
+                overlay.putpalette(colors)
+                overlay_array = np.array(overlay)
 
-            # Now the img and the segmentation can be composed together. Black
-            # areas in the segmentation (i.e. background) are ignored
+                # Now the img and the segmentation can be composed together. Black
+                # areas in the segmentation (i.e. background) are ignored
 
-            mask = np.zeros_like(overlay_array)
-            mask[np.where(overlay_array == 0)] = 255
-            mask = Image.fromarray(mask, mode='L')
+                mask = np.zeros_like(overlay_array)
+                mask[np.where(overlay_array == 0)] = 255
+                mask = Image.fromarray(mask, mode='L')
 
-            img = Image.composite(img, overlay.convert('RGB'), mask)
+                img = Image.composite(img, overlay.convert('RGB'), mask)
         draw = ImageDraw.Draw(img)
 
         # Now draw the gt bounding boxes onto the image
         for ann in ann_info.to_dict('records'):
             draw = self._draw_bbox(draw, ann, '#ed0707', oriented,
-                                   annotation_set, instances)
+                                   annotation_set_idx, instances)
 
         if self.proposals is not None:
             prop_info = self.get_img_props(idxs=img_idx, ids=img_id)
@@ -888,5 +893,5 @@ class OBBAnns:
         if show:
             img.show()
         if out_dir is not None:
-            img.save(osp.join(out_dir, datetime.now().strftime('%m-%d_%H%M%S'))
-                     + '.png')
+            out_dir = Path(out_dir, f"{img_fp.stem}_{datetime.now().strftime('%m-%d_%H%M%S')}.png")
+            img.save(out_dir)

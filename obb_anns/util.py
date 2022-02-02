@@ -1,6 +1,6 @@
 import os
 from pathlib import Path
-from typing import Union, Tuple
+from typing import Union, Tuple, Callable
 
 import numpy as np
 import torch
@@ -35,7 +35,8 @@ def rotated_box_to_poly(rboxes: torch.Tensor) -> torch.Tensor:
     return polys
 
 
-def anns_from_text_anns(dummy_ann: OBBAnns, path: Union[os.PathLike, str], filename: str = None) -> \
+def anns_from_text_anns(dummy_ann: OBBAnns, path: Union[os.PathLike, str], filename: str = None,
+                        a_bbox_transform_fn: Callable = lambda x: x, o_bbox_transform_fn: Callable = lambda x: x) -> \
         Tuple[Union[os.PathLike, str], int, int, dict]:
     if dummy_ann.cat_info is None:
         dummy_ann.load_annotations()
@@ -46,12 +47,14 @@ def anns_from_text_anns(dummy_ann: OBBAnns, path: Union[os.PathLike, str], filen
         cats[cat['name']] = cats.get(cat['name'], []) + [str(cat_id)]
     ann_dict = {}
     with open(path, 'r') as fp:
-        for i, line in enumerate(fp.readlines()):
+        i = 0
+        for line in fp.readlines():
             if len(line.strip()) == 0:
                 continue
+            i += 1
             file, cat_name, x, y, w, h, angle = line.strip().split(',')
             if filename is None:
-                file = Path(file).name
+                file = str(Path(file))
             else:
                 file = filename
             cat_id = cats.get(cat_name, None)
@@ -63,11 +66,13 @@ def anns_from_text_anns(dummy_ann: OBBAnns, path: Union[os.PathLike, str], filen
             # if angle != 0.0:
             #     suff = f" ({angle})"
             # print(f"Read ann: {cat_id} ({cat_name}): {x},{y}+{w}x{h}{suff}")
-            a_bbox = [x, y, x + h, y + w]
-            o_bbox = rotated_box_to_poly(torch.tensor([[x + h / 2.0, y + w / 2.0, w, h, np.deg2rad(angle)]]))
+            a_bbox = a_bbox_transform_fn([x, y, x + h, y + w])
+            o_bbox = o_bbox_transform_fn(rotated_box_to_poly(torch.tensor(
+                [[x, y, w, h, np.deg2rad(angle)]]
+            )).tolist()[0])
             ann_dict[str(i)] = {
                 'a_bbox': a_bbox,
-                'o_bbox': o_bbox.tolist()[0],
+                'o_bbox': o_bbox,
                 'cat_id': cat_id,
                 'area': w * h,
                 'img_id': 0,
