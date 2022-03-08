@@ -187,7 +187,7 @@ class OBBAnns:
                 'categories': self.cat_info,
                 'images': self.img_info,
                 'annotations': self.ann_info.to_dict('index'),
-            }, fp)
+            }, fp, separators=(',', ':'))
 
     def add_img_ann_pair(self, img: dict, anns: pd.DataFrame) -> int:
         new_img_id = max(list(self.img_idx_lookup.keys()) + [0]) + 1
