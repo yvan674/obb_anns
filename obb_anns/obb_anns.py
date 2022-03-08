@@ -749,8 +749,9 @@ class OBBAnns:
             dataset.
         :rtype: dict
         """
+        ann_set = self.chosen_ann_set[0] if isinstance(self.chosen_ann_set, list) else self.chosen_ann_set
         annotation_set_index = self.annotation_sets.index(
-            self.chosen_ann_set[0]
+            ann_set
         )
         anns = self.ann_info['cat_id'].apply(lambda x: x[annotation_set_index])
         anns_count = anns.value_counts()
