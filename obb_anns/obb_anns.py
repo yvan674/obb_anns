@@ -208,8 +208,11 @@ class OBBAnns:
         data_root = Path(self.ann_file).parent
         img_p = data_root / 'images'
         img_p.mkdir(exist_ok=True)
-        new_fp = img_p / Path(img['filename']).name
-        shutil.copy(img['filename'], new_fp)
+        old_fp = Path(img['filename'])
+        new_fp = img_p / old_fp.name
+        if not new_fp.exists():
+            print(f"Copying over {str(old_fp)} -> {str(new_fp)}")
+            shutil.copy(old_fp, new_fp)
         # Update filename in case there were parent directories included
         img['filename'] = Path(img['filename']).name
         self.img_info.append(img)
