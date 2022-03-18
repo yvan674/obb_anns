@@ -621,7 +621,7 @@ class OBBAnns:
             
             metrics[iou_thr] = {'ap': average_precision,
                                 'precision': np.average(precision),
-                                'recall': np.average(recall)}
+                                'recall': recall[-1]}
         return metrics
 
     @staticmethod
