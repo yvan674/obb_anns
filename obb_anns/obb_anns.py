@@ -583,6 +583,15 @@ class OBBAnns:
                 results_dict[cls_key] = averaged_dict
         return results_dict
 
+    def _count_class_gt(self, class_id):
+        # Count number of ground truths of specific class
+        if class_id is not None:
+            ann_gt_idxs = set(self.ann_info[self.ann_info['cat_id'].map(lambda x: int(x[0])) == class_id].index)
+        else:
+            ann_gt_idxs = set(self.ann_info.index)
+
+        return ann_gt_idxs
+
     def _evaluate_overlaps(self, overlaps, iou_thrs, by_class=None):
         metrics = {}
 
@@ -597,15 +606,7 @@ class OBBAnns:
             tp_sum = np.cumsum(tp).astype(dtype=np.float)
             fp_sum = np.cumsum(fp).astype(dtype=np.float)
 
-            # Count number of ground truths without a corresponding detection
-            # (False Negative)
-            if by_class is not None:
-                ann_gt_idxs = set(self.ann_info[
-                                      self.ann_info['cat_id'].map(
-                                          lambda x: int(x[0])
-                                      ) == by_class].index)
-            else:
-                ann_gt_idxs = set(self.ann_info.index)
+            ann_gt_idxs = self._count_class_gt(by_class)
 
             nr_gt = len(ann_gt_idxs)
 
