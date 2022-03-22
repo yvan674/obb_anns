@@ -567,7 +567,6 @@ class OBBAnns:
         else:
             results_dict["average"] = self._evaluate_overlaps(
                 overlaps,
-                tot_props,
                 iou_thrs)
 
         if average_thrs:
