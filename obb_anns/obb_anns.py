@@ -58,7 +58,7 @@ class OBBAnns:
         :type ann_file: str
         """
         # Store class attributes
-        self.ann_file = ann_file
+        self.ann_file = str(ann_file)
 
         self.proposal_file = None
         self.proposals = None
@@ -835,6 +835,8 @@ class OBBAnns:
         # Get the data_root from the ann_file path if it doesn't exist
         if data_root is None:
             data_root = Path(self.ann_file).parent
+        if isinstance(data_root, str):
+            data_root = Path(data_root)
 
         img_dir = data_root / 'images'
         seg_dir = data_root / 'segmentation'
