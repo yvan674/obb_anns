@@ -844,7 +844,7 @@ class OBBAnns:
 
         # Get the actual image filepath and the segmentation filepath
         img_fp = img_dir / img_info['filename']
-        print(f'Visualizing {img_fp.name}...')
+        # print(f'Visualizing {img_fp.name}...')
 
         # Remember: PIL Images are in form (h, w, 3)
         img = Image.open(img_fp)
@@ -886,8 +886,8 @@ class OBBAnns:
 
         # Now draw the gt bounding boxes onto the image
         for ann in ann_info.to_dict('records'):
-            draw = self._draw_bbox(draw, ann, '#ed0707', oriented,
-                                   annotation_set_idx, instances)
+            draw = self._draw_bbox(draw, ann, '#2C9B3E', oriented,
+                                   annotation_set_idx, instances=instances)
 
         if self.proposals is not None:
             prop_info = self.get_img_props(idxs=img_idx, ids=img_id)
