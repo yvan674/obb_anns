@@ -11,6 +11,7 @@ Created on:
 """
 import json
 import os
+import re
 import shutil
 from datetime import datetime
 from pathlib import Path
@@ -69,7 +70,7 @@ class OBBAnns:
         self.img_idx_lookup = dict()
         self.annotation_sets = None
         self.cat_info = None
-        self.ann_info: pd.DataFrame = None
+        self.ann_info: pd.DataFrame = self._get_ann_info({})
         self.chosen_ann_set = None  # type: None or List[str]
         self.classes_blacklist = []
         self.classes_blacklist_id = []
@@ -790,7 +791,8 @@ class OBBAnns:
                   annotation_set=None,
                   oriented=True,
                   instances=False,
-                  show=True):
+                  show=True,
+                  print_label=False):
         """Uses PIL to visualize the ground truth labels of a given image.
 
         img_idx and img_id are mutually exclusive. Only one can be used at a
@@ -815,6 +817,7 @@ class OBBAnns:
         :param bool instances: Choose whether to show classes or instances. If
             False, then shows classes. Else, shows instances as the labels on
             bounding boxes.
+        :param bool print_label: Choose whether to print the label for the gt boxes.
         """
         # Since we can only visualize a single image at a time, we do i[0] so
         # that we don't have to deal with lists. get_img_ann_pair() returns a
@@ -886,8 +889,13 @@ class OBBAnns:
 
         # Now draw the gt bounding boxes onto the image
         for ann in ann_info.to_dict('records'):
-            draw = self._draw_bbox(draw, ann, '#2C9B3E', oriented,
-                                   annotation_set_idx, instances=instances)
+            col = re.match(r'#[0-9a-fA-F]{6}', ann.get('comments', ''))
+            if col is None:
+                col = '#2C9B3E'
+            else:
+                col = col.group(0)
+            draw = self._draw_bbox(draw, ann, col, oriented,
+                                   annotation_set_idx, instances=instances, print_label=print_label)
 
         if self.proposals is not None:
             prop_info = self.get_img_props(idxs=img_idx, ids=img_id)
